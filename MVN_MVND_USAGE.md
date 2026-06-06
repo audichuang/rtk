@@ -102,14 +102,106 @@ $BIN hook check "./mvnw verify"         # → rtk mvn verify
 $BIN gain                               # 有輸出 = 正版 Rust Token Killer(非 Rust Type Kit)
 ```
 
+## 本地安裝實戰紀錄(2026-06-07 Linux 實測 + MacBook Pro 換裝指南)
+
+> 把「實際從零裝起來」的完整流程記下來,換機(MacBook Pro)照著做即可。本次在 Linux(linuxbrew)
+> 全程驗證通過;每段的「macOS」子項是換 MacBook Pro 時要改的地方。
+
+### 1. 改裝 rtk(讓全域 `rtk` 換成本分支 binary)
+
+原本 `rtk` 是 Homebrew symlink(`$(brew --prefix)/bin/rtk` → Cellar),**不能直接 `cp` 蓋**。
+正確做法:cargo 裝到 `~/.cargo/bin`,再 `brew unlink` 讓 PATH 解析到它(可逆)。
+
+```fish
+cd ~/research/rtk                   # 你 clone 的位置
+cargo install --path . --force      # 裝到 ~/.cargo/bin/rtk(release + LTO,約數分鐘)
+brew unlink rtk                     # 移掉 brew symlink,PATH 改解析到 ~/.cargo/bin/rtk
+which rtk                           # 應為 ~/.cargo/bin/rtk
+rtk --version                       # rtk 0.42.2(本分支版本)
+# 還原:brew link rtk
+```
+
+- **macOS**:步驟相同。Apple Silicon 的 brew 在 `/opt/homebrew`;若 `which rtk` 仍指到 brew,
+  確認 `~/.cargo/bin` 在 PATH 比 `/opt/homebrew/bin` 前面,或就靠 `brew unlink rtk` 解決。
+  Gatekeeper 不擋自己 build 的 binary,免 codesign。
+- Claude Code hook 用 `rtk hook claude`,brew unlink 後新 shell 會自動解析到新 binary,
+  hook 路由(`mvnd test` → `rtk mvnd test`)立即生效,**不必改 settings.json**。
+
+### 2. 安裝 Maven
+
+```fish
+brew install maven        # 本次裝到 3.9.16
+mvn -version
+```
+
+### 3. 安裝 mvnd(Maven Daemon)
+
+- **macOS(推薦,最省事)**:官方 tap 有 formula
+  ```fish
+  brew install mvndaemon/mvnd/mvnd
+  mvnd --version
+  ```
+- **Linux(brew 沒有 mvnd formula)**:從 Apache GitHub release 抓 tarball
+  ```fish
+  set V 1.0.6
+  curl -sSL -o /tmp/mvnd.tgz \
+    https://github.com/apache/maven-mvnd/releases/download/$V/maven-mvnd-$V-linux-amd64.tar.gz
+  mkdir -p ~/.local/share/mvnd; tar -xzf /tmp/mvnd.tgz -C ~/.local/share/mvnd
+  ln -sf ~/.local/share/mvnd/maven-mvnd-$V-linux-amd64/bin/mvnd ~/.local/bin/mvnd
+  ```
+  > ⚠️ **本次 Linux 踩雷**:Apache mvnd 1.0.6 的 daemon 端在這台 sandbox 噴
+  > `Unable to load mvndnative native library`(`org.mvndaemon.mvnd.nativ.CLibrary` 靜態初始化失敗),
+  > 任何 goal 都起不來。這是 **mvnd 自帶 native lib 在此環境載不起來,與 rtk 無關**;rtk 仍正確呼叫
+  > mvnd、套同一過濾、用時間閘跳過舊報告(回報 `no tests run`,不誤報)。macOS 用 brew tap 裝的 mvnd
+  > 是當平台 build,不會有這問題;Linux 若遇到,改用 `sdk install mvnd`(SDKMAN)或檢查 glibc 相容性。
+- **JAVA_HOME**(mvnd/mvn 都要找得到 JDK):
+  - Linux:`set -x JAVA_HOME (dirname (dirname (readlink -f (command -v java))))`
+  - macOS:`set -x JAVA_HOME (/usr/libexec/java_home -v 21)`
+
+### 4. 驗證 rtk × mvn/mvnd 正確運作
+
+```fish
+rtk hook check "mvnd clean test"   # → rtk mvnd clean test
+rtk hook check "./mvnw verify"     # → rtk mvn verify
+```
+
+拿一個 Spring Boot 專案(本次:Spring Boot 4 / Java 21,含通過 + 故意失敗測試)實跑各 goal。
+各 goal 路由與行為(2026-06-07 實測,以 `rtk mvn` 量;mvnd 共用同一 binary-agnostic 過濾):
+
+| goal | 行為 | 穩態節省 |
+|------|------|---------|
+| `clean` | 一行摘要 + 刪除路徑 | ~98% |
+| `compile` | 砍 INFO/下載雜訊,保留 BUILD SUCCESS / 錯誤 | ~96% |
+| `test` | 讀 surefire XML,只留結構化失敗摘要 | 94–99% |
+| `verify` | 同 test + failsafe 整合測試 | ~99% |
+| `dependency:tree` | 座標壓縮 | ~99% |
+| `clean test` / `clean install` | 多 goal 合併過濾(可過濾段過濾、passthrough 段原樣) | 視內容 |
+| `package` / `install` | **passthrough**(原樣輸出,不過濾) | ~0% |
+
+失敗路徑實測(`rtk mvn test`,8 測試 2 失敗):原始 23,337 字元 → rtk 521 字元(**−97.8%**),
+正確還原 1 個 `[error] IllegalStateException` + 1 個 `AssertionFailedError`(`expected:<200> but was:<404>`)。
+`rtk gain --history` 記錄:`rtk mvn test` −94%、成功路徑 `-Dtest=...` −99%。
+
+> 量測注意:比較 `rtk proxy mvn <goal>`(raw)vs `rtk mvn <goal>`(filtered)時 **先各跑一次暖機**,
+> 否則第一次的一次性下載(如 spring-boot repackage 拉 loader)會灌水節省率——package 冷測假性顯示 ~92%,
+> 暖機後僅 ~4% ≈ passthrough。
+
 ## 已知 backlog(低/中風險,之後慢慢補)
 
 - `-X` / `--debug` 應強制 passthrough(目前 debug 行會污染失敗詳情)
-- 截斷的 surefire XML 會丟失失敗細節(只剩計數)
-- 招牌節省率(test 99% 等)目前無測試實證
-- `stack_trace.rs:190 / 222` 兩個 `expect()` 違反 no-`expect` 規則(目前不變式成立、不會 panic)
+- 截斷(truncated)的 surefire XML 仍會丟失失敗細節(只剩計數)— 與下方已修的 self-closing 是不同情況
 - Windows 未優先選 `mvnw.cmd`
-- 無 `mvnd` 專屬 fixture/測試
+- 無 `mvnd` 專屬 fixture/測試(mvnd 與 mvn 共用過濾邏輯,以 `rtk mvn` 實證即可涵蓋)
+
+### 已修(2026-06-07,commit `27dc44c`)
+
+- ✅ **self-closing `<failure .../>` / `<error .../>`**(body-less 失敗)過去被 quick-xml 當成
+  `Event::Empty`、只有 End 分支會 push,導致該筆失敗的 XML enrichment 整個遺失;已抽 `push_failure`
+  helper 在 Empty 路徑也補 push,並在 self-closing 後與 testcase 結束時重置 `capture` 防狀態洩漏
+  (加了 regression fixture + 測試)
+- ✅ **三個 production `expect()`**(`stack_trace.rs:190 / 222`、`mvn_cmd.rs run_compile_like`)改為
+  infallible(`if-let` / `let-else` / `unwrap_or`),符合 no-`expect` / no-panic 規則
+- ✅ **招牌節省率已實證**(見上方「本地安裝實戰紀錄」量測表 + `rtk gain` 數據)
 
 ## 與上游同步
 

@@ -1,0 +1,52 @@
+[INFO] Scanning for projects...
+[WARNING] Could not transfer metadata org.slf4j:slf4j-api/maven-metadata.xml from/to maven-default-http-blocker (http://0.0.0.0/): Blocked mirror for repositories: [apache.snapshots (http://repository.apache.org/snapshots, default, snapshots)]
+[INFO]
+[INFO] -------------------------< com.example:api >-------------------------
+[INFO] Building Example API 1.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO]
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven) @ api ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireMavenVersion passed
+[INFO]
+[INFO] --- compiler:3.11.0:compile (default-compile) @ api ---
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 173 source files with javac [debug release 17] to target/classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR :
+[INFO] -------------------------------------------------------------
+[ERROR] /home/user/project/src/main/java/com/example/api/v2/feature/FeatureController.java:[27,36] variable featureService not initialized in the default constructor
+[ERROR] /home/user/project/src/main/java/com/example/api/v2/account/AccountService.java:[67,17] cannot find symbol
+  symbol:   variable log
+  location: class com.example.api.v2.account.AccountService
+[ERROR] /home/user/project/src/main/java/com/example/api/general/endpoint/GeneralExceptionHandler.java:[57,17] cannot find symbol
+  symbol:   variable log
+  location: class com.example.api.general.endpoint.GeneralExceptionHandler
+[ERROR] /home/user/project/src/main/java/com/example/api/v2/RemoteFeatureApiConfig.java:[73,24] constructor FeatureErrorDecoder in class com.example.api.v2.feature.FeatureErrorDecoder cannot be applied to given types;
+  required: no arguments
+  found:    com.fasterxml.jackson.databind.ObjectMapper
+  reason: actual and formal argument lists differ in length
+[INFO] 4 errors
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  1.780 s
+[INFO] Finished at: 2026-04-18T00:21:52+02:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:compile (default-compile) on project api: Compilation failure: Compilation failure:
+[ERROR] /home/user/project/src/main/java/com/example/api/v2/feature/FeatureController.java:[27,36] variable featureService not initialized in the default constructor
+[ERROR] /home/user/project/src/main/java/com/example/api/v2/account/AccountService.java:[67,17] cannot find symbol
+[ERROR]   symbol:   variable log
+[ERROR]   location: class com.example.api.v2.account.AccountService
+[ERROR] /home/user/project/src/main/java/com/example/api/general/endpoint/GeneralExceptionHandler.java:[57,17] cannot find symbol
+[ERROR]   symbol:   variable log
+[ERROR]   location: class com.example.api.general.endpoint.GeneralExceptionHandler
+[ERROR] /home/user/project/src/main/java/com/example/api/v2/RemoteFeatureApiConfig.java:[73,24] constructor FeatureErrorDecoder in class com.example.api.v2.feature.FeatureErrorDecoder cannot be applied to given types;
+[ERROR]   required: no arguments
+[ERROR]   found:    com.fasterxml.jackson.databind.ObjectMapper
+[ERROR]   reason: actual and formal argument lists differ in length
+[ERROR] -> [Help 1]
+[ERROR]
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

@@ -10,6 +10,19 @@ pub struct RtkRule {
     pub subcmd_status: &'static [(&'static str, RtkStatus)],
 }
 
+/// Shared savings table for the mvn and mvnd rules — both binaries run the
+/// same goals through the same filters, so per-goal savings are identical.
+/// Keeping one source of truth prevents the two rules from drifting.
+const MVN_SUBCMD_SAVINGS: &[(&str, f64)] = &[
+    ("test", 99.0),
+    ("verify", 95.0),
+    ("compile", 85.0),
+    ("checkstyle:check", 90.0),
+    ("checkstyle", 90.0),
+    ("dependency:tree", 70.0),
+    ("clean", 95.0),
+];
+
 pub const RULES: &[RtkRule] = &[
     RtkRule {
         pattern: r"^(?:git|yadm)\s+(?:-[Cc]\s+\S+\s+)*(status|log|diff|show|add|commit|push|pull|branch|fetch|stash|worktree)",
@@ -690,12 +703,21 @@ pub const RULES: &[RtkRule] = &[
         subcmd_status: &[],
     },
     RtkRule {
-        pattern: r"^mvn\s+(compile|package|clean|install)\b",
+        pattern: r"^(\.\/?)?mvnw?\s+(test|verify|compile|package|clean|install|dependency:tree|checkstyle:check|checkstyle)\b",
         rtk_cmd: "rtk mvn",
-        rewrite_prefixes: &["mvn"],
+        rewrite_prefixes: &["mvn", "mvnw", "./mvnw"],
         category: "Build",
-        savings_pct: 70.0,
-        subcmd_savings: &[],
+        savings_pct: 90.0,
+        subcmd_savings: MVN_SUBCMD_SAVINGS,
+        subcmd_status: &[],
+    },
+    RtkRule {
+        pattern: r"^mvnd\s+(test|verify|compile|package|clean|install|dependency:tree|checkstyle:check|checkstyle)\b",
+        rtk_cmd: "rtk mvnd",
+        rewrite_prefixes: &["mvnd"],
+        category: "Build",
+        savings_pct: 90.0,
+        subcmd_savings: MVN_SUBCMD_SAVINGS,
         subcmd_status: &[],
     },
     RtkRule {

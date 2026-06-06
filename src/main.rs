@@ -15,7 +15,7 @@ use cmds::js::{
     lint_cmd, next_cmd, npm_cmd, playwright_cmd, pnpm_cmd, prettier_cmd, prisma_cmd, tsc_cmd,
     vitest_cmd,
 };
-use cmds::jvm::gradlew_cmd;
+use cmds::jvm::{gradlew_cmd, mvn_cmd};
 use cmds::python::{mypy_cmd, pip_cmd, pytest_cmd, ruff_cmd};
 use cmds::ruby::{rake_cmd, rspec_cmd, rubocop_cmd};
 use cmds::rust::{cargo_cmd, runner};
@@ -714,6 +714,18 @@ enum Commands {
         command: GoCommands,
     },
 
+    /// Maven commands with compact output
+    Mvn {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+
+    /// Maven Daemon (mvnd) commands with compact output — same filters as `rtk mvn`
+    Mvnd {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+
     /// Graphite (gt) stacked PR commands with compact output
     Gt {
         #[command(subcommand)]
@@ -1353,6 +1365,11 @@ fn validate_pnpm_filters(filters: &[String], command: &PnpmCommands) -> Option<S
         }
         _ => None,
     }
+}
+
+/// Dispatch an mvn/mvnd invocation to the multi-goal-aware router in mvn_cmd.
+fn dispatch_mvn(binary: mvn_cmd::MvnBinary, args: Vec<OsString>, verbose: u8) -> Result<i32> {
+    mvn_cmd::dispatch(binary, &args, verbose)
 }
 
 fn main() {
@@ -2176,6 +2193,9 @@ fn run_cli() -> Result<i32> {
             GoCommands::Other(args) => go_cmd::run_other(&args, cli.verbose)?,
         },
 
+        Commands::Mvn { args } => dispatch_mvn(mvn_cmd::MvnBinary::Mvn, args, cli.verbose)?,
+        Commands::Mvnd { args } => dispatch_mvn(mvn_cmd::MvnBinary::Mvnd, args, cli.verbose)?,
+
         Commands::Gt { command } => match command {
             GtCommands::Log { args } => gt_cmd::run_log(&args, cli.verbose)?,
             GtCommands::Submit { args } => gt_cmd::run_submit(&args, cli.verbose)?,
@@ -2528,6 +2548,8 @@ fn is_operational_command(cmd: &Commands) -> bool {
             | Commands::Rspec { .. }
             | Commands::Pip { .. }
             | Commands::Go { .. }
+            | Commands::Mvn { .. }
+            | Commands::Mvnd { .. }
             | Commands::GolangciLint { .. }
             | Commands::Gt { .. }
     )

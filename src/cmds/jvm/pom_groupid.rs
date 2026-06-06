@@ -87,16 +87,14 @@ pub(crate) fn extract_groupid(xml: &str) -> Option<String> {
                     capturing = true;
                 }
             }
-            Ok(Event::Text(t)) => {
-                if capturing {
-                    if let Ok(text) = t.unescape() {
-                        let text = text.trim();
-                        if !text.is_empty() {
-                            if is_top_level_groupid(&stack) && top_level_groupid.is_none() {
-                                top_level_groupid = Some(text.to_string());
-                            } else if is_parent_groupid(&stack) && parent_groupid.is_none() {
-                                parent_groupid = Some(text.to_string());
-                            }
+            Ok(Event::Text(t)) if capturing => {
+                if let Ok(text) = t.unescape() {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        if is_top_level_groupid(&stack) && top_level_groupid.is_none() {
+                            top_level_groupid = Some(text.to_string());
+                        } else if is_parent_groupid(&stack) && parent_groupid.is_none() {
+                            parent_groupid = Some(text.to_string());
                         }
                     }
                 }

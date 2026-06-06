@@ -276,11 +276,15 @@ pub fn parse_dir(
         return None;
     }
 
-    let entries = std::fs::read_dir(dir).ok()?;
+    // Sort entries by file name so failure ordering is deterministic regardless
+    // of the OS/filesystem `read_dir` order — otherwise the rendered output (and
+    // its snapshots) are flaky across machines.
+    let mut entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
+    entries.sort_by_key(|e| e.file_name());
     let mut aggregate = SurefireResult::default();
     let mut any_candidate = false;
 
-    for entry in entries.flatten() {
+    for entry in entries {
         let path = entry.path();
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
             continue;

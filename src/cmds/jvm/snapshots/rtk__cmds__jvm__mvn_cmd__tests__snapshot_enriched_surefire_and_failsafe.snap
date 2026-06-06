@@ -22,13 +22,7 @@ Failures (from surefire-reports/):
 
 
 Integration failures (from failsafe-reports/):
-1. com.example.PortConflictIT.shouldStartServer
-   [error] BindException: Address already in use
-     java.net.BindException: Address already in use
-     	... 2 framework frames omitted
-     	at com.example.PortConflictIT.shouldStartServer(PortConflictIT.java:42)
-
-2. com.example.DbIntegrationIT.shouldConnect
+1. com.example.DbIntegrationIT.shouldConnect
    [error] IllegalStateException: Failed to load ApplicationContext
      java.lang.IllegalStateException: Failed to load ApplicationContext
      	... 3 framework frames omitted
@@ -42,6 +36,12 @@ Integration failures (from failsafe-reports/):
     [STDERR]
     2026-04-15 10:42:17 ERROR HikariDataSource - HikariPool-1 - Connection is not available
     Connection refused (Connection refused)
+
+2. com.example.PortConflictIT.shouldStartServer
+   [error] BindException: Address already in use
+     java.net.BindException: Address already in use
+     	... 2 framework frames omitted
+     	at com.example.PortConflictIT.shouldStartServer(PortConflictIT.java:42)
 
 
 

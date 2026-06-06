@@ -813,6 +813,10 @@ pub fn dispatch(binary: MvnBinary, args: &[OsString], verbose: u8) -> Result<i32
                     .cloned()
                     .collect()
             };
+            // Strip `-q`/`--quiet` like the multi-goal path does (see
+            // run_multi_goal): otherwise mvn suppresses the [INFO]/TESTS output
+            // RTK needs, and a passing run is mis-reported as "no tests run".
+            let rest = strip_quiet_flags(&rest);
             match route_goal(&goal) {
                 GoalRouting::Test => run_test(binary, &rest, verbose),
                 GoalRouting::Verify => run_verify(binary, &rest, verbose),

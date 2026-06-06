@@ -889,6 +889,46 @@ mod tests {
         );
     }
 
+    /// Regression: the mvn rule's optional `./` wrapper prefix must stay
+    /// NON-capturing so the goal lands in capture group 1 — otherwise the
+    /// per-goal MVN_SUBCMD_SAVINGS lookup (registry reads caps.get(1)) silently
+    /// falls back to the rule default for every mvn/mvnw invocation.
+    #[test]
+    fn test_classify_mvn_per_goal_savings() {
+        for cmd in ["mvn test", "mvnw test", "./mvnw test"] {
+            assert_eq!(
+                classify_command(cmd),
+                Classification::Supported {
+                    rtk_equivalent: "rtk mvn",
+                    category: "Build",
+                    estimated_savings_pct: 99.0,
+                    status: RtkStatus::Existing,
+                },
+                "{cmd} should report the per-goal test savings, not the rule default"
+            );
+        }
+        // mvnd shares the same per-goal table via its own rule.
+        assert_eq!(
+            classify_command("mvnd test"),
+            Classification::Supported {
+                rtk_equivalent: "rtk mvnd",
+                category: "Build",
+                estimated_savings_pct: 99.0,
+                status: RtkStatus::Existing,
+            }
+        );
+        // package/install route to passthrough → 0%, not the 90% rule default.
+        assert_eq!(
+            classify_command("mvn package"),
+            Classification::Supported {
+                rtk_equivalent: "rtk mvn",
+                category: "Build",
+                estimated_savings_pct: 0.0,
+                status: RtkStatus::Existing,
+            }
+        );
+    }
+
     #[test]
     fn test_classify_yadm_status() {
         assert_eq!(

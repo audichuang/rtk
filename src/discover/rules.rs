@@ -21,6 +21,11 @@ const MVN_SUBCMD_SAVINGS: &[(&str, f64)] = &[
     ("checkstyle", 90.0),
     ("dependency:tree", 70.0),
     ("clean", 95.0),
+    // `package`/`install` route to passthrough in mvn_cmd::route_goal (no
+    // dedicated filter), so RTK saves ~nothing — report 0% rather than letting
+    // discover fall back to the rule's 90% default and over-promise.
+    ("package", 0.0),
+    ("install", 0.0),
 ];
 
 pub const RULES: &[RtkRule] = &[
@@ -703,7 +708,11 @@ pub const RULES: &[RtkRule] = &[
         subcmd_status: &[],
     },
     RtkRule {
-        pattern: r"^(\.\/?)?mvnw?\s+(test|verify|compile|package|clean|install|dependency:tree|checkstyle:check|checkstyle)\b",
+        // The optional `./` wrapper prefix is NON-capturing so the goal lands in
+        // capture group 1 — registry.rs reads caps.get(1) for the per-goal
+        // savings lookup (matching the mvnd rule below). A capturing prefix here
+        // silently shifted the goal to group 2, leaving MVN_SUBCMD_SAVINGS dead.
+        pattern: r"^(?:\.\/?)?mvnw?\s+(test|verify|compile|package|clean|install|dependency:tree|checkstyle:check|checkstyle)\b",
         rtk_cmd: "rtk mvn",
         rewrite_prefixes: &["mvn", "mvnw", "./mvnw"],
         category: "Build",

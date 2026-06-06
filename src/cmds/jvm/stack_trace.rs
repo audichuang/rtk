@@ -187,14 +187,17 @@ pub(crate) fn process(raw: &str, app_packages: &[String], max_lines: usize) -> O
             out.push(truncate_header(&seg.header));
             add_frames(&mut out, &seg.frames, app_packages, None);
         }
-        let root = segments.last().expect("segments.len() > 1 guaranteed by branch");
-        out.push(truncate_header(&root.header));
-        add_frames(
-            &mut out,
-            &root.frames,
-            app_packages,
-            Some(DEFAULT_ROOT_CAUSE_APP_FRAMES),
-        );
+        // segments.len() > 1 in this branch, so last() is always Some; guard
+        // instead of expect() to honor the no-panic rule.
+        if let Some(root) = segments.last() {
+            out.push(truncate_header(&root.header));
+            add_frames(
+                &mut out,
+                &root.frames,
+                app_packages,
+                Some(DEFAULT_ROOT_CAUSE_APP_FRAMES),
+            );
+        }
     }
 
     if max_lines > 0 && out.len() > max_lines {
@@ -219,7 +222,13 @@ fn apply_hard_cap(out: Vec<String>, segments: &[Segment], max_lines: usize) -> V
         return out;
     }
 
-    let root = segments.last().expect("segments.len() > 1 guaranteed by guard");
+    // segments.len() > 1 here (guarded above); fall back to a plain truncate
+    // rather than panicking if that invariant ever changes.
+    let Some(root) = segments.last() else {
+        let mut out = out;
+        out.truncate(max_lines);
+        return out;
+    };
     let truncated_root_header = truncate_header(&root.header);
     let root_idx = out
         .iter()

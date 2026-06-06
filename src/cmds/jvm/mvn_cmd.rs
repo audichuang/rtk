@@ -317,10 +317,13 @@ fn run_tests_like(
 /// preserving the original goal name in the invocation and in the tracking
 /// label.
 fn run_compile_like(binary: MvnBinary, goal: &str, args: &[String], verbose: u8) -> Result<i32> {
+    // `route_goal` only routes here for goals in COMPILE_LIKE_GOALS, so the
+    // lookup normally succeeds. Fall back to the goal name itself as the tracking
+    // slug rather than panicking, in case a future caller routes a new goal here.
     let tee_slug = COMPILE_LIKE_GOALS
         .iter()
         .find_map(|&(g, slug)| (g == goal).then_some(slug))
-        .expect("goal must be in COMPILE_LIKE_GOALS — gated by route_goal");
+        .unwrap_or(goal);
     run_simple_goal(binary, goal, tee_slug, filter_mvn_compile, args, verbose)
 }
 

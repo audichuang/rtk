@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.example.SelfClosingFailureTest" time="0.812" tests="3" errors="1" skipped="0" failures="1">
+  <testcase name="shouldPass" classname="com.example.SelfClosingFailureTest" time="0.100"/>
+  <testcase name="shouldAssertWithoutTrace" classname="com.example.SelfClosingFailureTest" time="0.412">
+    <failure message="expected:&lt;true&gt; but was:&lt;false&gt;" type="org.opentest4j.AssertionFailedError"/>
+  </testcase>
+  <testcase name="shouldErrorWithoutTrace" classname="com.example.SelfClosingFailureTest" time="0.300">
+    <error message="Timeout waiting for container startup" type="java.util.concurrent.TimeoutException"/>
+  </testcase>
+</testsuite>

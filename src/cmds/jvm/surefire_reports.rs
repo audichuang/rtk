@@ -115,21 +115,30 @@ pub(crate) fn parse_content(xml: &str, app_packages: &[String]) -> Option<Surefi
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+            res @ (Ok(Event::Start(_)) | Ok(Event::Empty(_))) => {
+                // A self-closing element (`<failure .../>`) arrives as
+                // `Event::Empty` and has NO matching End event — so any End-time
+                // finalization must happen here, and any `capture` it arms must
+                // be cleared at the end of this arm.
+                let is_empty = matches!(res, Ok(Event::Empty(_)));
+                let e = match &res {
+                    Ok(Event::Start(e)) | Ok(Event::Empty(e)) => e,
+                    _ => unreachable!("matched Start|Empty above"),
+                };
                 match local_name(e.name().as_ref()) {
                     b"testsuite" => {
                         saw_testsuite = true;
                         let file_summary = TestSummary {
-                            run: parse_u32_attr(&reader, &e, b"tests"),
-                            failures: parse_u32_attr(&reader, &e, b"failures"),
-                            errors: parse_u32_attr(&reader, &e, b"errors"),
-                            skipped: parse_u32_attr(&reader, &e, b"skipped"),
+                            run: parse_u32_attr(&reader, e, b"tests"),
+                            failures: parse_u32_attr(&reader, e, b"failures"),
+                            errors: parse_u32_attr(&reader, e, b"errors"),
+                            skipped: parse_u32_attr(&reader, e, b"skipped"),
                         };
                         result.summary.add(&file_summary);
                     }
                     b"testcase" => {
-                        current_class = extract_attr(&reader, &e, b"classname");
-                        current_method = extract_attr(&reader, &e, b"name");
+                        current_class = extract_attr(&reader, e, b"classname");
+                        current_method = extract_attr(&reader, e, b"name");
                         current_has_failure = false;
                     }
                     b"failure" | b"error" => {
@@ -138,12 +147,26 @@ pub(crate) fn parse_content(xml: &str, app_packages: &[String]) -> Option<Surefi
                         } else {
                             FailureKind::Error
                         };
-                        pending_message = extract_attr(&reader, &e, b"message");
-                        pending_type = extract_attr(&reader, &e, b"type");
+                        pending_message = extract_attr(&reader, e, b"message");
+                        pending_type = extract_attr(&reader, e, b"type");
                         pending_kind = Some(kind);
                         stack_buf.clear();
                         capture = Some(CaptureField::StackTrace);
                         current_has_failure = true;
+                        if is_empty {
+                            // Body-less failure/error: no stack-trace text will
+                            // arrive, so finalize the record immediately.
+                            push_failure(
+                                &mut result,
+                                &current_class,
+                                &current_method,
+                                &mut pending_kind,
+                                &mut pending_message,
+                                &mut pending_type,
+                                "",
+                                app_packages,
+                            );
+                        }
                     }
                     b"system-out" if current_has_failure => {
                         stdout_buf.clear();
@@ -154,6 +177,10 @@ pub(crate) fn parse_content(xml: &str, app_packages: &[String]) -> Option<Surefi
                         capture = Some(CaptureField::SystemErr);
                     }
                     _ => {}
+                }
+                if is_empty {
+                    // Nothing to capture inside a self-closing element.
+                    capture = None;
                 }
             }
             Ok(Event::Text(t)) => {
@@ -170,23 +197,16 @@ pub(crate) fn parse_content(xml: &str, app_packages: &[String]) -> Option<Surefi
             Ok(Event::End(e)) => {
                 match local_name(e.name().as_ref()) {
                     b"failure" | b"error" => {
-                        let processed = stack_trace::process(
-                            stack_buf.trim(),
+                        push_failure(
+                            &mut result,
+                            &current_class,
+                            &current_method,
+                            &mut pending_kind,
+                            &mut pending_message,
+                            &mut pending_type,
+                            &stack_buf,
                             app_packages,
-                            DEFAULT_STACK_TRACE_LINES,
                         );
-                        result.failures.push(TestFailure {
-                            test_class: current_class.clone().unwrap_or_default(),
-                            test_method: current_method.clone().unwrap_or_default(),
-                            kind: pending_kind.take().unwrap_or(FailureKind::Failure),
-                            message: pending_message
-                                .take()
-                                .filter(|s| !s.is_empty())
-                                .map(|s| stack_trace::truncate_header(&s)),
-                            failure_type: pending_type.take().filter(|s| !s.is_empty()),
-                            stack_trace: processed,
-                            test_output: None,
-                        });
                         capture = None;
                     }
                     b"system-out" | b"system-err" => {
@@ -213,6 +233,10 @@ pub(crate) fn parse_content(xml: &str, app_packages: &[String]) -> Option<Surefi
                         current_class = None;
                         current_method = None;
                         current_has_failure = false;
+                        // Defensive: a malformed report could leave a failure's
+                        // capture armed with no End — never let it bleed into the
+                        // next testcase.
+                        capture = None;
                     }
                     _ => {}
                 }
@@ -229,6 +253,38 @@ pub(crate) fn parse_content(xml: &str, app_packages: &[String]) -> Option<Surefi
     }
 
     Some(result)
+}
+
+/// Build a finalized `TestFailure` from the in-flight parse state and push it.
+///
+/// Shared by the streaming `</failure>`/`</error>` End handler and the
+/// self-closing (`Event::Empty`) handler so a body-less `<failure .../>` yields
+/// an identical record (just with an empty stack trace) instead of being
+/// silently dropped. Takes the pending state by `&mut` and drains it via `take`.
+#[allow(clippy::too_many_arguments)]
+fn push_failure(
+    result: &mut SurefireResult,
+    current_class: &Option<String>,
+    current_method: &Option<String>,
+    pending_kind: &mut Option<FailureKind>,
+    pending_message: &mut Option<String>,
+    pending_type: &mut Option<String>,
+    stack_raw: &str,
+    app_packages: &[String],
+) {
+    let processed = stack_trace::process(stack_raw.trim(), app_packages, DEFAULT_STACK_TRACE_LINES);
+    result.failures.push(TestFailure {
+        test_class: current_class.clone().unwrap_or_default(),
+        test_method: current_method.clone().unwrap_or_default(),
+        kind: pending_kind.take().unwrap_or(FailureKind::Failure),
+        message: pending_message
+            .take()
+            .filter(|s| !s.is_empty())
+            .map(|s| stack_trace::truncate_header(&s)),
+        failure_type: pending_type.take().filter(|s| !s.is_empty()),
+        stack_trace: processed,
+        test_output: None,
+    });
 }
 
 fn combine_test_output(stdout: &str, stderr: &str, per_test_limit: usize) -> Option<String> {
@@ -474,6 +530,50 @@ mod tests {
         assert!(first.message.as_deref().unwrap_or("").contains("expected"));
         assert!(first.stack_trace.is_some());
         assert_eq!(first.kind, FailureKind::Failure);
+    }
+
+    #[test]
+    fn parse_content_self_closing_failure_and_error_are_captured() {
+        // Regression: Surefire/JUnit engines can emit body-less, self-closing
+        // <failure .../> and <error .../> (no captured stack trace). quick-xml
+        // reports these as Event::Empty, which previously armed the pending
+        // state but never pushed a TestFailure — silently losing the failure's
+        // XML enrichment even though the testsuite summary still counted it.
+        let xml = include_str!(
+            "../../../tests/fixtures/java/surefire-reports/TEST-com.example.SelfClosingFailureTest.xml"
+        );
+        let result = parse_content(xml, &[]).expect("self-closing testsuite parses");
+
+        // Summary is read from the <testsuite> attributes regardless.
+        assert_eq!(result.summary.failures, 1);
+        assert_eq!(result.summary.errors, 1);
+
+        // Both self-closing elements must surface as detailed failures.
+        assert_eq!(
+            result.failures.len(),
+            2,
+            "self-closing <failure/> and <error/> must each produce a TestFailure"
+        );
+
+        let failure = result
+            .failures
+            .iter()
+            .find(|f| f.test_method == "shouldAssertWithoutTrace")
+            .expect("self-closing <failure/> captured");
+        assert_eq!(failure.kind, FailureKind::Failure);
+        assert!(failure.message.as_deref().unwrap_or("").contains("expected"));
+
+        let error = result
+            .failures
+            .iter()
+            .find(|f| f.test_method == "shouldErrorWithoutTrace")
+            .expect("self-closing <error/> captured");
+        assert_eq!(error.kind, FailureKind::Error);
+        assert!(error
+            .failure_type
+            .as_deref()
+            .unwrap_or("")
+            .contains("TimeoutException"));
     }
 
     #[test]

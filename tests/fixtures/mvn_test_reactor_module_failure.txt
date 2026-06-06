@@ -1,0 +1,56 @@
+[[34;1mINFO[0m] Scanning for projects...
+[[33;1mWARNING[0m] 1 problem was encountered while building the effective model for 'com.example.app:module1:jar:1.0-SNAPSHOT' (use -e to see details)
+[[34;1mINFO[0m] [1m--------------------------------------------------------------------------------------------------------------------------[0m
+[[34;1mINFO[0m] [1mReactor Build Order:[0m
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] Project Bill of Materials                                                                                            [pom]
+[[34;1mINFO[0m] Project Top Level                                                                                                    [pom]
+[[34;1mINFO[0m] Project Module 1                                                                                                     [jar]
+[[34;1mINFO[0m] Project Module 2                                                                                                     [jar]
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] [1m---------------------------------------------------< [36;22mcom.example.app:module1[39;1m >---------------------------------------------------[0m
+[[34;1mINFO[0m] [1mBuilding Project Module 1 1.0-SNAPSHOT                                                                               [3/4][0m
+[[34;1mINFO[0m]   from module1/pom.xml
+[[34;1mINFO[0m] [1m---------------------------------------------------------[ jar ]----------------------------------------------------------[0m
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] [1m--- [32;22mcompiler:3.13.0:compile[0m [1m(default-compile)[0m @ [36mmodule1[39;1m ---[0m
+[[34;1mINFO[0m] Nothing to compile - all classes are up to date.
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] [1m--- [32;22msurefire:3.5.2:test[0m [1m(default-test)[0m @ [36mmodule1[39;1m ---[0m
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] -------------------------------------------------------
+[[34;1mINFO[0m]  T E S T S
+[[34;1mINFO[0m] -------------------------------------------------------
+[[34;1mINFO[0m] Running com.example.app.[1mSpeakerTest[m
+[[31;1mERROR[0m] [1;31mTests [0;1mrun: [0;1m1[m, [1;31mFailures: [0;1;31m1[m, Errors: 0, Skipped: 0, Time elapsed: 0.022 s[1;31m <<< FAILURE![m -- in com.example.app.[1mSpeakerTest[m
+[[31;1mERROR[0m] com.example.app.SpeakerTest.speak -- Time elapsed: 0.005 s <<< FAILURE!
+org.junit.ComparisonFailure: expected:<He[llo]!> but was:<He[re I am]!>
+	at org.junit.Assert.assertEquals(Assert.java:117)
+	at com.example.app.SpeakerTest.speak(SpeakerTest.java:11)
+	at org.apache.maven.surefire.booter.ForkedBooter.main(ForkedBooter.java:495)
+
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] Results:
+[[34;1mINFO[0m]
+[[31;1mERROR[0m] [1;31mFailures: [m
+[[31;1mERROR[0m] [1;31m  SpeakerTest.speak:11 expected:<He[llo]!> but was:<He[re I am]!>[m
+[[34;1mINFO[0m]
+[[31;1mERROR[0m] [1;31mTests run: 1, Failures: 1, Errors: 0, Skipped: 0[m
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] [1m--------------------------------------------------------------------------------------------------------------------------[0m
+[[34;1mINFO[0m] [1mReactor Summary for Project Top Level 1.0-SNAPSHOT:[0m
+[[34;1mINFO[0m]
+[[34;1mINFO[0m] Project Bill of Materials ............................................................................ [32;1mSUCCESS[0m [  0.006 s]
+[[34;1mINFO[0m] Project Top Level .................................................................................... [32;1mSUCCESS[0m [  0.090 s]
+[[34;1mINFO[0m] Project Module 1 ..................................................................................... [31;1mFAILURE[0m [  0.421 s]
+[[34;1mINFO[0m] Project Module 2 ..................................................................................... [33;1mSKIPPED[0m
+[[34;1mINFO[0m] [1m--------------------------------------------------------------------------------------------------------------------------[0m
+[[34;1mINFO[0m] [31;1mBUILD FAILURE[0m
+[[34;1mINFO[0m] [1m--------------------------------------------------------------------------------------------------------------------------[0m
+[[34;1mINFO[0m] Total time:  0.619 s
+[[34;1mINFO[0m] Finished at: 2026-04-18T20:10:20+02:00
+[[34;1mINFO[0m] [1m--------------------------------------------------------------------------------------------------------------------------[0m
+[[31;1mERROR[0m] Failed to execute goal [32morg.apache.maven.plugins:maven-surefire-plugin:3.5.2:test[0m [1m(default-test)[0m on project [36mmodule1[0m: [31;1mThere are test failures.[m
+[[31;1mERROR[0m] [31;1mSee /workspace/example-project/module1/target/surefire-reports for the individual test results.[m
+[[31;1mERROR[0m] [0m-> [1m[Help 1][0m[m
+[[31;1mERROR[0m] [1m[Help 1][0m http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

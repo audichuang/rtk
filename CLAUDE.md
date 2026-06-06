@@ -8,6 +8,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a fork with critical fixes for git argument parsing and modern JavaScript stack support (pnpm, vitest, Next.js, TypeScript, Playwright, Prisma).
 
+### Maven (mvn) + Maven Daemon (mvnd) — absorbed from PR #1089
+
+This fork carries full `rtk mvn` **and** `rtk mvnd` support, absorbed locally from upstream
+[PR #1089](https://github.com/rtk-ai/rtk/pull/1089) (which is stuck upstream awaiting maintainer review, not on conflicts).
+It replaces the old shallow `mvn-build.toml` with a Rust module under `src/cmds/jvm/` (mvn_cmd, surefire_reports,
+stack_trace, pom_groupid) covering test/verify/compile/checkstyle/dependency:tree/clean with Surefire/Failsafe XML
+test summarization, plus hook auto-routing for `mvn`/`mvnw`/`./mvnw`/`mvnd`. Post-merge fixes (commit `ebb7080`)
+clear the deep-review blockers so the mandatory `fmt && clippy && test` gate stays green. We self-maintain this and
+upstream gradually.
+
+**How to build/use it locally (Linux + macOS/Homebrew), verify routing, and the open backlog: see
+[MVN_MVND_USAGE.md](MVN_MVND_USAGE.md).** Key gotchas: binaries are not cross-platform (build per machine); on a
+Homebrew Mac do not `cp` over the `/opt/homebrew/bin/rtk` symlink — use `brew unlink rtk` + `cargo install --path .`.
+
 ### Name Collision Warning
 
 **Two different "rtk" projects exist:**
@@ -75,7 +89,7 @@ For the full architecture, component details, and module development patterns, s
 
 Module responsibilities are documented in each folder's `README.md` and each file's `//!` doc header. Browse `src/cmds/*/` to discover available filters.
 
-Supported ecosystems: git/gh/gt, cargo, go/golangci-lint, npm/pnpm/npx, ruff/pytest/pip/mypy, rspec/rubocop/rake, dotnet, playwright/vitest/jest, docker/kubectl/aws.
+Supported ecosystems: git/gh/gt, cargo, go/golangci-lint, npm/pnpm/npx, ruff/pytest/pip/mypy, rspec/rubocop/rake, dotnet, mvn/mvnw, playwright/vitest/jest, docker/kubectl/aws.
 
 ### Proxy Mode
 

@@ -1502,6 +1502,13 @@ fn filter_mvn_compile(output: &str) -> String {
     // javac context lines (`[ERROR] symbol: …`) that would mirror an earlier
     // occurrence emitted without the `[ERROR]` prefix.
     let mut swallow_error_context = false;
+    // Mojo/plugin failure header (`Failed to execute goal …: <reason>`) is
+    // dropped as boilerplate below, but kept aside so we can surface it when
+    // it turns out to be the ONLY failure signal (no compile/test errors) —
+    // otherwise a plugin failure collapses to a bare BUILD FAILURE with no
+    // reason (e.g. surefire `-Dtest=NoSuchTest` → "No tests matching pattern").
+    let mut mojo_reason: Option<String> = None;
+    let mut saw_kept_error = false;
     let mut result = String::with_capacity(clean.len() / 4);
 
     let push = |dst: &mut String, line: &str| {
@@ -1514,6 +1521,15 @@ fn filter_mvn_compile(output: &str) -> String {
     for raw in clean.lines() {
         let line = raw.trim();
         let stripped = strip_maven_prefix(line);
+
+        // Stash the first mojo failure header before it is dropped below; the
+        // trailing ` -> [Help N]` pointer is stripped so only the reason stays.
+        if mojo_reason.is_none()
+            && line.starts_with(ERROR_TAG)
+            && stripped.starts_with("Failed to execute goal")
+        {
+            mojo_reason = Some(strip_help_link_suffix(line).to_string());
+        }
 
         if in_build_order {
             if REACTOR_BUILD_ORDER_RE.is_match(stripped)
@@ -1574,6 +1590,9 @@ fn filter_mvn_compile(output: &str) -> String {
             swallow_error_context = false;
         }
 
+        if line.starts_with(ERROR_TAG) {
+            saw_kept_error = true;
+        }
         push(&mut result, line);
     }
 
@@ -1583,11 +1602,34 @@ fn filter_mvn_compile(output: &str) -> String {
         }
     }
 
+    // When the build failed but no compile/test `[ERROR]` content was kept,
+    // the mojo failure header is the only diagnostic we have — surface it
+    // ahead of the BUILD FAILURE line so the user sees *why* it failed.
+    if !saw_kept_error {
+        if let Some(reason) = mojo_reason {
+            result = if result.is_empty() {
+                reason
+            } else {
+                format!("{reason}\n{result}")
+            };
+        }
+    }
+
     if result.is_empty() {
         return "mvn: ok".to_string();
     }
 
     result
+}
+
+/// Strip the trailing ` -> [Help N]` pointer Maven appends to a
+/// `Failed to execute goal …` line, leaving just the actionable reason.
+/// Expects pre-trimmed input.
+fn strip_help_link_suffix(line: &str) -> &str {
+    match line.find(" -> [Help") {
+        Some(idx) => line[..idx].trim_end(),
+        None => line,
+    }
 }
 
 /// Render a one-line reactor summary naming failed modules. Returns `None`
@@ -3905,6 +3947,39 @@ mod tests {
             "mvn test output missing compile-error signal:\n{output}"
         );
         assert!(output.contains("BUILD FAILURE"));
+    }
+
+    #[test]
+    fn test_mvn_test_mojo_failure_surfaces_reason() {
+        // A BUILD FAILURE caused by a plugin/mojo error (here: surefire
+        // `-Dtest=NoSuchTest` → "No tests matching pattern") produces no
+        // `T E S T S` block and no compile errors, so the test filter falls
+        // back to the compile filter. The `[ERROR] Failed to execute goal …`
+        // line is the ONLY diagnostic — it must reach the user, while the
+        // `-> [Help N]` / "re-run with -e/-X" boilerplate tail is dropped.
+        let input = include_str!("../../../tests/fixtures/mvn_test_no_matching_tests.txt");
+        let output = filter_mvn_test(input);
+
+        // The actual failure reason must survive.
+        assert!(
+            output.contains("No tests matching pattern"),
+            "mojo failure reason was dropped:\n{output}"
+        );
+        assert!(output.contains("BUILD FAILURE"), "lost BUILD FAILURE:\n{output}");
+
+        // The boilerplate tail must NOT survive.
+        assert!(!output.contains("-> [Help"), "kept Help-link tail:\n{output}");
+        assert!(
+            !output.contains("re-run Maven") && !output.contains("Re-run Maven"),
+            "kept re-run boilerplate:\n{output}"
+        );
+        assert!(
+            !output.contains("cwiki.apache.org"),
+            "kept cwiki Help link:\n{output}"
+        );
+
+        let savings = 100.0 - (count_tokens(&output) as f64 / count_tokens(input) as f64 * 100.0);
+        assert!(savings >= 60.0, "expected ≥60% savings, got {savings:.1}%");
     }
 
     #[test]

@@ -186,12 +186,105 @@ rtk hook check "./mvnw verify"     # → rtk mvn verify
 > 否則第一次的一次性下載(如 spring-boot repackage 拉 loader)會灌水節省率——package 冷測假性顯示 ~92%,
 > 暖機後僅 ~4% ≈ passthrough。
 
+## macOS(Apple Silicon)實測紀錄(2026-06-07,MacBook Pro)
+
+> 上節 playbook 的 macOS 子項本次全程照做、**全部成立**。這也是第一次拿「真的 mvnd」實跑
+> (Linux 那次 daemon 起不來,只能驗證 rtk 的呼叫路徑)。
+>
+> 環境:Apple Silicon,brew tap 裝的 mvnd 1.0.5(darwin-aarch64 native client,內含 Maven 3.9.14)、
+> brew Maven 3.9.16、JDK 21(Zulu)。受測對象:一個單模組 Spring Boot / Java 21 專案,
+> 565 個單元測試(無 failsafe 整合測試)。
+
+### 安裝驗證(playbook 成立 + 一個新坑)
+
+- `cargo install --path . --force` + `brew unlink rtk` 照做即成功(1m05s,`which rtk` → `~/.cargo/bin/rtk`)。
+- **新坑:這台機器 `~/.cargo/bin` 原本不在 PATH**(rustup 有裝、shell 設定沒帶到),`brew unlink`
+  之後 `rtk` 會直接消失。fish 解法:`fish_add_path -p ~/.cargo/bin`(永久、排最前)。連帶
+  `cargo`/`rustc` 本來也只能用完整路徑 `~/.cargo/bin/cargo` 叫。
+- brew tap 的 mvnd 是當平台 native build,**沒有** Linux tarball 的 native-lib 載入問題——上節預測成立。
+- hook 路由換 binary 後立即生效(`rtk hook check "mvnd clean test"` → `rtk mvnd clean test`),
+  不必動 settings.json。
+
+### goal 矩陣(mvnd 實跑,非以 mvn 代測)
+
+| goal | 過濾後輸出 | 實測節省(`rtk gain`) |
+|------|-----------|---------------------|
+| `clean` | 1 行(deleted 路徑 + 時間) | −92% |
+| `compile` | BUILD SUCCESS + javac unchecked 警告(合理保留) | −76% |
+| `test` | **1 行**:`mvn test: 565 passed (8.228 s (Wall Clock))` | **−100%**(75.9K → 1 行) |
+| `verify` | **1 行** | **−100%**(76.0K) |
+| `dependency:tree` | 39 行壓縮樹(`(23 transitive)` 摺疊正常) | 冷 −77% / 暖 −86% |
+| `clean test`(多 goal) | 9 行(警告 + 測試摘要 + BUILD SUCCESS) | **−100%**(76.2K) |
+| 失敗路徑(見問題 1) | BUILD FAILURE + tee log 路徑 | −73% |
+
+exit code 傳遞(BUILD FAILURE 時 rtk 回 1)與 tee 兜底(`~/Library/Application Support/rtk/tee/`)皆正確。
+
+### 新發現問題(依嚴重度排序,皆附複現方式)
+
+**1. mojo 層級 BUILD FAILURE 的 `[ERROR]` 原因整段被砍(最值得修)**
+
+當失敗不是「測試失敗」(沒有 surefire XML 可 enrich)而是 plugin/mojo 錯誤時,過濾後輸出只剩
+`[INFO] BUILD FAILURE` + 時間,**完全看不到失敗原因**;原因只存在 tee log。exit code 仍正確回 1,
+但 LLM/使用者必須多開一次 tee 檔才知道為什麼掛。
+
+複現(任何用 surefire 的專案都行):
+
+```fish
+rtk mvnd test -Dtest=NoSuchTest         # 過濾後:只有 BUILD FAILURE,無原因
+rtk proxy mvnd test -Dtest=NoSuchTest   # raw 對照:有完整 [ERROR] 區塊
+```
+
+raw 裡被砍掉的關鍵行(`<專案>` 為去識別化):
+
+```
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.5.5:test
+        (default-test) on project <專案>: No tests matching pattern "NoSuchTest" were
+        executed! (Set -Dsurefire.failIfNoSpecifiedTests=false to ignore this error.)
+```
+
+修法方向:BUILD FAILURE 且無 XML enrichment 時,保留開頭數行 `[ERROR]`(去掉「re-run with -e/-X」
+「[Help 1] 連結」那段樣板尾巴)。未驗證 `mvn` 是否同病(推測會,過濾邏輯 binary-agnostic)。
+
+**2. mvnd daemon 專屬雜訊未過濾(每次 3–5 行)**
+
+每個 `rtk mvnd <goal>` 都會漏出 mvnd client/daemon 的固定開場白與 jline 終端警告:
+
+```
+[INFO] Processing build on daemon <id>
+[INFO] BuildTimeEventSpy is registered.
+[INFO] Using the SmartBuilder implementation with a thread count of N
+WARNING: Unable to create a system terminal, creating a dumb terminal ...        (jline,stderr)
+[main] WARNING org.jline - Unable to create a system terminal, ...
+```
+
+原因:噪音 pattern 是照 `mvn` 輸出寫的,mvnd 才有的行不在清單(jline 警告是 rtk 以 pipe 捕捉
+輸出、無 tty 所致,必現)。複現:macOS brew tap mvnd 跑任一 goal,`rtk mvnd compile` 最明顯。
+修法方向:上述固定前綴加進噪音表 + 收一份真 mvnd fixture。
+**這也推翻了原 backlog「mvnd 與 mvn 共用過濾邏輯,以 rtk mvn 實證即可涵蓋」的假設——mvnd 輸出確實長得不一樣。**
+
+**3. `dependency:tree` 冷啟動下載雜訊漏過(~20 行)**
+
+首跑時 `Downloading from central:` / `Downloaded from central:`(抓 maven-metadata.xml)原樣輸出;
+`compile` 路徑的下載噪音有被濾掉,dep-tree 路徑沒有。暖機第二跑即消失(節省 −77% → −86%)。
+複現:新機器或清掉 `~/.m2` 的 metadata 快取後首跑 `rtk mvnd dependency:tree`。
+未驗證 `mvn` 是否同病(推測會)。
+
+**4. 多 goal 模式測試時間顯示 `(?)`(cosmetic)**
+
+`rtk mvnd clean test` 的摘要行是 `mvn test: 565 passed (?)`;單 goal 跑得出 `(8.228 s (Wall Clock))`。
+多 goal 分段路徑沒把 wall-clock 接過來。複現:任何會通過的測試集跑 `rtk mvnd clean test`。
+同類 cosmetic:mvnd 跑出來的摘要前綴仍寫 `mvn test:`(顯示標籤未隨 binary 切換;
+`rtk gain` 的 tracking 標籤倒是正確分開記 `rtk mvnd ...`)。
+
 ## 已知 backlog(低/中風險,之後慢慢補)
 
 - `-X` / `--debug` 應強制 passthrough(目前 debug 行會污染失敗詳情)
 - 截斷(truncated)的 surefire XML 仍會丟失失敗細節(只剩計數)— 與下方已修的 self-closing 是不同情況
 - Windows 未優先選 `mvnw.cmd`
-- 無 `mvnd` 專屬 fixture/測試(mvnd 與 mvn 共用過濾邏輯,以 `rtk mvn` 實證即可涵蓋)
+- 無 `mvnd` 專屬 fixture/測試 — **2026-06-07 macOS 實測已證實有實害**(見上節問題 1–3:
+  daemon 雜訊漏過、mojo 失敗原因被砍、dep-tree 下載雜訊),「以 `rtk mvn` 實證即可涵蓋」的假設不成立
+- mojo 層級 BUILD FAILURE 應保留 `[ERROR]` 原因行(上節問題 1,最優先)
+- 多 goal 摘要 wall-clock 顯示 `(?)`、mvnd 摘要前綴誤標 `mvn`(上節問題 4,cosmetic)
 
 ### 已修(2026-06-07,commit `27dc44c`)
 

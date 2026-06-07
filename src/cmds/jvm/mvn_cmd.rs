@@ -138,6 +138,19 @@ const BARE_PLUGIN_WARNING_PREFIXES: &[&str] = &[
     "WARNING: Your application has authenticated",
 ];
 
+/// mvnd (Maven Daemon) client/daemon startup banner + jline terminal
+/// warnings. None of these appear in plain `mvn` output — they are emitted by
+/// the daemon client and by jline's failed attempt to allocate a TTY when rtk
+/// captures the daemon's output through a pipe (so they recur on every piped
+/// `mvnd` run). Matched on the already `trim_start`-ed line, so the `[INFO]`
+/// prefix is part of the match for the daemon lines.
+const MVND_NOISE_PREFIXES: &[&str] = &[
+    "[INFO] Processing build on daemon ",
+    "[INFO] BuildTimeEventSpy is registered",
+    "[INFO] Using the SmartBuilder implementation",
+    "WARNING: Unable to create a system terminal",
+];
+
 /// Returns true for mvn startup / JVM / os-detection noise that is not
 /// command-specific (applies to compile, checkstyle, and most goals).
 /// Expects a raw (non-trimmed) line or a trimmed line — both work.
@@ -178,6 +191,20 @@ fn is_mvn_startup_noise(line: &str) -> bool {
         if t.starts_with(p) {
             return true;
         }
+    }
+
+    // mvnd daemon banner (`[INFO] Processing build on daemon …`, eventspy,
+    // SmartBuilder) and the bare `WARNING: Unable to create a system terminal`.
+    for p in MVND_NOISE_PREFIXES {
+        if t.starts_with(p) {
+            return true;
+        }
+    }
+
+    // jline's slf4j terminal warning, emitted under a varying thread prefix
+    // (`[main] WARNING org.jline - …`, `[daemon-…] WARNING org.jline - …`).
+    if t.contains("WARNING org.jline") {
+        return true;
     }
 
     // os-maven-plugin detection output: `[INFO] os.detected.name: linux` etc.
@@ -4028,6 +4055,35 @@ mod tests {
         );
         assert!(output.contains("BUILD SUCCESS"));
         assert!(output.contains("Total time"));
+    }
+
+    #[test]
+    fn test_mvnd_compile_daemon_noise_is_stripped() {
+        // mvnd (Maven Daemon) emits client/daemon banner lines and jline
+        // terminal warnings that plain `mvn` never produces; they leaked
+        // through the compile filter once per goal. First mvnd-specific
+        // fixture — mvn/mvnd share the binary-agnostic filter, but the
+        // 2026-06-07 macOS field test proved mvnd output differs.
+        let input = include_str!("../../../tests/fixtures/mvnd_compile_daemon_noise.txt");
+        let output = filter_mvn_compile(input);
+
+        for noise in [
+            "Processing build on daemon",
+            "BuildTimeEventSpy",
+            "SmartBuilder",
+            "system terminal",
+            "org.jline",
+        ] {
+            assert!(
+                !output.contains(noise),
+                "mvnd noise leaked ({noise}):\n{output}"
+            );
+        }
+        assert!(output.contains("BUILD SUCCESS"), "lost BUILD signal:\n{output}");
+
+        let savings = 100.0 - (count_tokens(&output) as f64 / count_tokens(input) as f64 * 100.0);
+        assert!(savings >= 60.0, "expected ≥60% savings, got {savings:.1}%");
+        insta::assert_snapshot!(output);
     }
 
     #[test]

@@ -1,0 +1,25 @@
+[INFO] Processing build on daemon 7f3a2b1c-9d4e-4a21-8c6f-1b2e3d4a5c6d
+WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+[main] WARNING org.jline - Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+[INFO] Scanning for projects...
+[INFO] BuildTimeEventSpy is registered.
+[INFO] Using the SmartBuilder implementation with a thread count of 10
+[INFO]
+[INFO] -----------------------< com.example:demo >-----------------------
+[INFO] Building demo 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO]
+[INFO] --- resources:3.3.1:resources (default-resources) @ demo ---
+[INFO] Copying 1 resource from src/main/resources to target/classes
+[INFO]
+[INFO] --- compiler:3.13.0:compile (default-compile) @ demo ---
+[INFO] Recompiling the module because of changed source code.
+[INFO] Compiling 42 source files with javac [debug release 21] to target/classes
+[INFO]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  3.456 s (Wall Clock)
+[INFO] Finished at: 2026-06-07T11:50:02+08:00
+[INFO] ------------------------------------------------------------------------

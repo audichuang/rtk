@@ -42,6 +42,18 @@ fn parse_total_time(stripped: &str) -> Option<&str> {
         .and_then(|caps| caps.get(1).map(|m| m.as_str().trim()))
 }
 
+/// Parse the build's `Total time:` value from the full raw output. Used by the
+/// multi-goal path, whose per-segment test buffer no longer carries the footer
+/// line — the wall-clock has to come from the build block instead. Returns the
+/// first match (Maven prints a single build total). `TOTAL_TIME_RE` is
+/// unanchored, so the `[INFO]` prefix on the raw line does not interfere.
+fn parse_total_time_from_raw(raw: &str) -> Option<String> {
+    raw.lines().find_map(|l| {
+        let s = strip_ansi(l);
+        parse_total_time(&s).map(|t| t.to_string())
+    })
+}
+
 lazy_static! {
     static ref VERSION_MANAGED_RE: Regex =
         Regex::new(r"\s*\(version managed from [^)]+\)")
@@ -265,6 +277,35 @@ fn mvn_labels(binary: MvnBinary, goal: &str, tee_slug: &str) -> (String, String)
     (format!("{binary} {goal}"), format!("{binary}_{tee_slug}"))
 }
 
+/// Relabel the canonical `mvn` summary prefix the filters emit so it reflects
+/// the binary actually invoked. The filters always produce `mvn …` (keeps their
+/// snapshots binary-independent); for `mvnd` we rewrite the column-0 summary
+/// label (`mvn test:` → `mvnd test:`, `mvn … (multi-goal)`, `mvn: ok`) and the
+/// `rtk proxy mvn …` bypass hint at display time. Indented detail/stack-trace
+/// lines (which never sit at column 0) are left untouched. The `rtk gain`
+/// tracking label is set separately via `mvn_labels` and is intentionally not
+/// affected here. No-op for `Mvn`.
+fn relabel_summary(output: String, binary: MvnBinary) -> String {
+    if binary != MvnBinary::Mvnd {
+        return output;
+    }
+    let bin = binary.as_str();
+    let relabeled = output
+        .lines()
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("mvn ") {
+                format!("{bin} {rest}")
+            } else if let Some(rest) = line.strip_prefix("mvn:") {
+                format!("{bin}:{rest}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    relabeled.replace("rtk proxy mvn ", &format!("rtk proxy {bin} "))
+}
+
 /// Build the base command for the selected binary. For `Mvn`, auto-detects the
 /// `mvnw` wrapper and falls back to system `mvn`. For `Mvnd`, always invokes
 /// `mvnd` directly (the daemon does not use wrapper scripts).
@@ -331,8 +372,10 @@ fn run_tests_like(
             // Thread `app_packages` into the stdout parser so its framework
             // frame filtering matches the XML enrichment's behavior — keeps
             // the fallback (no XML reports) format consistent with XML output.
-            let filtered = filter_mvn_tests_with_goal(raw, goal_str, &app_pkgs);
-            enrich_with_reports(&filtered, &cwd_for_filter, started_at, &app_pkgs, goal_str)
+            let filtered = filter_mvn_tests_with_goal(raw, goal_str, &app_pkgs, None);
+            let enriched =
+                enrich_with_reports(&filtered, &cwd_for_filter, started_at, &app_pkgs, goal_str);
+            relabel_summary(enriched, binary)
         },
         runner::RunOptions::with_tee(&tee_label),
     )
@@ -406,7 +449,7 @@ fn run_simple_goal(
         cmd,
         &tool_name,
         &args.join(" "),
-        filter,
+        move |raw: &str| relabel_summary(filter(raw), binary),
         runner::RunOptions::with_tee(&tee_label),
     )
 }
@@ -665,7 +708,10 @@ fn filter_segments(raw: &str) -> MultiParts {
     }
     if !test_buf.trim().is_empty() {
         let goal = if has_failsafe { "verify" } else { "test" };
-        parts.tests = filter_mvn_tests_with_goal(&test_buf, goal, &[]);
+        // The test segment buffer ends before the build footer, so it carries
+        // no `Total time:` line — pull the build wall-clock from the raw output.
+        let wall_clock = parse_total_time_from_raw(raw);
+        parts.tests = filter_mvn_tests_with_goal(&test_buf, goal, &[], wall_clock.as_deref());
     }
     if !checkstyle_buf.trim().is_empty() {
         parts.checkstyle = filter_mvn_checkstyle(&checkstyle_buf);
@@ -773,7 +819,7 @@ fn run_multi_goal(binary: MvnBinary, args: &[String], verbose: u8) -> Result<i32
                 parts.tests =
                     enrich_with_reports(&parts.tests, &cwd, started_at, &app_pkgs, test_goal);
             }
-            compose_multi(&parts, &header)
+            relabel_summary(compose_multi(&parts, &header), binary)
         },
         runner::RunOptions::with_tee(&tee_label),
     )
@@ -1156,12 +1202,12 @@ fn counts(r: Option<&SurefireResult>) -> (usize, usize, usize) {
 /// Filter `mvn test` output using a state machine parser.
 #[cfg(test)]
 pub(crate) fn filter_mvn_test(output: &str) -> String {
-    filter_mvn_tests_with_goal(output, "test", &[])
+    filter_mvn_tests_with_goal(output, "test", &[], None)
 }
 
 #[cfg(test)]
 pub(crate) fn filter_mvn_verify(output: &str) -> String {
-    filter_mvn_tests_with_goal(output, "verify", &[])
+    filter_mvn_tests_with_goal(output, "verify", &[], None)
 }
 
 /// Shared state machine parser for test-producing goals (`test`, `verify`).
@@ -1171,7 +1217,12 @@ pub(crate) fn filter_mvn_verify(output: &str) -> String {
 /// - Testing: collect failure details from [ERROR] headers and assertion lines
 /// - Summary: parse final "Tests run:" line, BUILD SUCCESS/FAILURE, Total time
 /// - Done: stop at Help boilerplate
-fn filter_mvn_tests_with_goal(output: &str, goal: &str, app_packages: &[String]) -> String {
+fn filter_mvn_tests_with_goal(
+    output: &str,
+    goal: &str,
+    app_packages: &[String],
+    time_override: Option<&str>,
+) -> String {
     let clean = strip_ansi(output);
     let mut state = TestParseState::Preamble;
 
@@ -1305,7 +1356,10 @@ fn filter_mvn_tests_with_goal(output: &str, goal: &str, app_packages: &[String])
     }
 
     let counts = cumulative;
-    let time_str = total_time.as_deref().unwrap_or("?");
+    // Single-goal callers parse `Total time:` from the full output; the
+    // multi-goal path has no footer in its segment buffer and passes the
+    // build wall-clock in via `time_override`.
+    let time_str = time_override.or(total_time.as_deref()).unwrap_or("?");
     let has_failures = counts.failures > 0 || counts.errors > 0;
 
     // Guard: BUILD FAILURE while still in `Testing` (no `Results:` block,
@@ -3443,7 +3497,7 @@ mod tests {
         // noise while XML output was clean.
         let input = include_str!("../../../tests/fixtures/mvn_test_reactor_fail.txt");
         let output =
-            super::filter_mvn_tests_with_goal(input, "test", &pkgs("com.edeal.frontline"));
+            super::filter_mvn_tests_with_goal(input, "test", &pkgs("com.edeal.frontline"), None);
         assert!(
             !output.contains("org.junit.Assert.assertEquals"),
             "kept `org.junit.Assert` framework frame with app_packages known:\n{output}"
@@ -3457,7 +3511,7 @@ mod tests {
         let input = include_str!("../../../tests/fixtures/mvn_test_reactor_fail.txt");
         let with_empty = filter_mvn_test(input); // app_packages = &[]
         let with_pkgs =
-            super::filter_mvn_tests_with_goal(input, "test", &pkgs("com.edeal.frontline"));
+            super::filter_mvn_tests_with_goal(input, "test", &pkgs("com.edeal.frontline"), None);
         // Empty-packages mode keeps frames the legacy whitelist doesn't cover.
         assert!(
             with_empty.contains("org.junit.Assert.assertEquals"),
@@ -4224,5 +4278,59 @@ mod tests {
         let savings = 100.0 - (count_tokens(&output) as f64 / count_tokens(input) as f64 * 100.0);
         assert!(savings >= 80.0, "expected ≥80%, got {:.1}%", savings);
         insta::assert_snapshot!(output);
+    }
+
+    #[test]
+    fn test_multi_goal_verify_summary_has_wall_clock() {
+        // The multi-goal test summary previously showed `(?)` because the
+        // per-segment test buffer no longer carries the trailing `Total time:`
+        // footer (split_segments stops at the build block). Thread the build's
+        // wall-clock time through. (2026-06-07 macOS field test, problem 4.)
+        let input = include_str!("../../../tests/fixtures/mvn_multi_clean_verify_fail.txt");
+        let output = filter_mvn_multi(input, "clean verify");
+        assert!(
+            !output.contains("(?)"),
+            "multi-goal summary still shows unknown time:\n{output}"
+        );
+        assert!(
+            output.contains("68 run, 1 failed (47.231 s)"),
+            "multi-goal summary missing build wall-clock time:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_relabel_summary_switches_mvn_to_mvnd() {
+        // mvnd runs share the binary-agnostic filters, which always emit a
+        // `mvn …` label; relabel_summary swaps the displayed prefix to `mvnd`
+        // (the `rtk gain` tracking label is set separately and unaffected).
+        let single = "mvn test: 565 passed (8.228 s (Wall Clock))".to_string();
+        assert_eq!(
+            relabel_summary(single.clone(), MvnBinary::Mvnd),
+            "mvnd test: 565 passed (8.228 s (Wall Clock))"
+        );
+        // No-op for plain mvn — existing snapshots must stay byte-for-byte.
+        assert_eq!(relabel_summary(single.clone(), MvnBinary::Mvn), single);
+
+        // Multi-goal header + compile `ok` + inner test summary all relabeled.
+        let multi =
+            "mvn clean verify (multi-goal)\nmvn: ok\nmvn verify: 68 run, 1 failed (47.231 s)"
+                .to_string();
+        let got = relabel_summary(multi, MvnBinary::Mvnd);
+        assert!(got.contains("mvnd clean verify (multi-goal)"), "{got}");
+        assert!(got.contains("mvnd: ok"), "{got}");
+        assert!(got.contains("mvnd verify: 68 run, 1 failed (47.231 s)"), "{got}");
+        assert!(!got.contains("mvn "), "left a bare `mvn ` label: {got}");
+
+        // The bypass hint inside the red-flag message is relabeled too.
+        let hint =
+            "mvn test: 0 tests executed — surefire detected no tests. … or run: rtk proxy mvn test"
+                .to_string();
+        let got = relabel_summary(hint, MvnBinary::Mvnd);
+        assert!(got.starts_with("mvnd test:"), "{got}");
+        assert!(got.contains("rtk proxy mvnd test"), "{got}");
+
+        // Indented detail / stack-trace lines (not column-0 labels) untouched.
+        let detail = "   at com.example.Foo.bar(Foo.java:1)".to_string();
+        assert_eq!(relabel_summary(detail.clone(), MvnBinary::Mvnd), detail);
     }
 }

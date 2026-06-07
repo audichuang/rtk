@@ -4,7 +4,7 @@ expression: output
 ---
 mvn clean verify (multi-goal)
 mvn: ok
-mvn verify: 68 run, 1 failed (?)
+mvn verify: 68 run, 1 failed (47.231 s)
 
 Failures:
 1. com.example.app.UserProcessingIT.shouldProcessUser

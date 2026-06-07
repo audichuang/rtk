@@ -2259,6 +2259,24 @@ mod tests {
         vec![s.to_string()]
     }
 
+    /// Copy a surefire/failsafe XML fixture to `dst` and stamp its mtime to
+    /// "now". The enrichment time-gate skips reports older than `started_at`.
+    /// On Linux `std::fs::copy` resets the destination mtime to now, so a plain
+    /// copy looks fresh; on macOS APFS `fs::copy` uses `clonefile`, which
+    /// PRESERVES the source mtime (the fixture's checkout time) — the gate then
+    /// judges it stale and enrichment silently vanishes. Stamping the mtime
+    /// explicitly keeps these tests deterministic on every platform (mirrors
+    /// surefire_reports::tests::copy_fixture).
+    fn copy_report_fixture(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Path>) {
+        let dst = dst.as_ref();
+        std::fs::copy(src.as_ref(), dst).expect("copy fixture");
+        filetime::set_file_mtime(
+            dst,
+            filetime::FileTime::from_system_time(std::time::SystemTime::now()),
+        )
+        .expect("stamp fixture mtime");
+    }
+
     #[test]
     fn test_test_counts_add() {
         let mut a = TestSummary {
@@ -3543,11 +3561,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let reports_dir = tmp.path().join("target/surefire-reports");
         std::fs::create_dir_all(&reports_dir).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml",
-            reports_dir.join("TEST-com.example.FailingTest.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml", reports_dir.join("TEST-com.example.FailingTest.xml"));
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let text = "mvn test: 2 run, 2 failed (0.6 s)\nBUILD FAILURE\n\nFailures:\n\
@@ -3596,11 +3610,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let reports_dir = tmp.path().join("target/surefire-reports");
         std::fs::create_dir_all(&reports_dir).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml",
-            reports_dir.join("TEST-com.example.FailingTest.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml", reports_dir.join("TEST-com.example.FailingTest.xml"));
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let text = "mvn test: 4 run, 2 failed (01:02 min)\nBUILD FAILURE";
@@ -3618,16 +3628,8 @@ mod tests {
         let fs = tmp.path().join("target/failsafe-reports");
         std::fs::create_dir_all(&sf).unwrap();
         std::fs::create_dir_all(&fs).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml",
-            sf.join("TEST-com.example.FailingTest.xml"),
-        )
-        .unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml",
-            fs.join("TEST-com.example.DbIntegrationIT.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml", sf.join("TEST-com.example.FailingTest.xml"));
+        copy_report_fixture("tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml", fs.join("TEST-com.example.DbIntegrationIT.xml"));
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let text = "mvn verify: 10 run, 3 failed (03:30 min)\nBUILD FAILURE";
@@ -3649,29 +3651,17 @@ mod tests {
         // Module A has the failing test (under <cwd>/module-a/target/...)
         let mod_a_sf = tmp.path().join("module-a/target/surefire-reports");
         std::fs::create_dir_all(&mod_a_sf).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml",
-            mod_a_sf.join("TEST-com.example.FailingTest.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml", mod_a_sf.join("TEST-com.example.FailingTest.xml"));
 
         // Module B has a passing suite (under <cwd>/module-b/target/...)
         let mod_b_sf = tmp.path().join("module-b/target/surefire-reports");
         std::fs::create_dir_all(&mod_b_sf).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports/TEST-com.example.PassingTest.xml",
-            mod_b_sf.join("TEST-com.example.PassingTest.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports/TEST-com.example.PassingTest.xml", mod_b_sf.join("TEST-com.example.PassingTest.xml"));
 
         // Module C has integration failure under failsafe-reports
         let mod_c_fs = tmp.path().join("module-c/target/failsafe-reports");
         std::fs::create_dir_all(&mod_c_fs).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml",
-            mod_c_fs.join("TEST-com.example.DbIntegrationIT.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml", mod_c_fs.join("TEST-com.example.DbIntegrationIT.xml"));
 
         // No reports at <cwd>/target/ — the cwd-only check would miss everything.
         assert!(!tmp.path().join("target").exists());
@@ -3733,16 +3723,8 @@ mod tests {
         let m2 = tmp.path().join("module2/target/surefire-reports");
         std::fs::create_dir_all(&m1).unwrap();
         std::fs::create_dir_all(&m2).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports-modules/module1/TEST-com.example.app.SpeakerTest.xml",
-            m1.join("TEST-com.example.app.SpeakerTest.xml"),
-        )
-        .unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports-modules/module2/TEST-com.example.app.AppTest.xml",
-            m2.join("TEST-com.example.app.AppTest.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports-modules/module1/TEST-com.example.app.SpeakerTest.xml", m1.join("TEST-com.example.app.SpeakerTest.xml"));
+        copy_report_fixture("tests/fixtures/java/surefire-reports-modules/module2/TEST-com.example.app.AppTest.xml", m2.join("TEST-com.example.app.AppTest.xml"));
 
         // Reports were just written — `since` must be older than the copy.
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
@@ -3838,11 +3820,7 @@ mod tests {
             "TEST-com.example.FailingTest.xml",
             "TEST-com.example.PassingTest.xml",
         ] {
-            std::fs::copy(
-                format!("tests/fixtures/java/surefire-reports/{name}"),
-                reports.join(name),
-            )
-            .unwrap();
+            copy_report_fixture(format!("tests/fixtures/java/surefire-reports/{name}"), reports.join(name));
         }
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
@@ -3858,21 +3836,9 @@ mod tests {
         let fs = tmp.path().join("target/failsafe-reports");
         std::fs::create_dir_all(&sf).unwrap();
         std::fs::create_dir_all(&fs).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml",
-            sf.join("TEST-com.example.FailingTest.xml"),
-        )
-        .unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml",
-            fs.join("TEST-com.example.DbIntegrationIT.xml"),
-        )
-        .unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/failsafe-reports/TEST-com.example.PortConflictIT.xml",
-            fs.join("TEST-com.example.PortConflictIT.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/surefire-reports/TEST-com.example.FailingTest.xml", sf.join("TEST-com.example.FailingTest.xml"));
+        copy_report_fixture("tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml", fs.join("TEST-com.example.DbIntegrationIT.xml"));
+        copy_report_fixture("tests/fixtures/java/failsafe-reports/TEST-com.example.PortConflictIT.xml", fs.join("TEST-com.example.PortConflictIT.xml"));
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let text = "mvn verify: 12 run, 4 failed (05:42 min)\nBUILD FAILURE";
@@ -3922,11 +3888,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let fs = tmp.path().join("target/failsafe-reports");
         std::fs::create_dir_all(&fs).unwrap();
-        std::fs::copy(
-            "tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml",
-            fs.join("TEST-com.example.DbIntegrationIT.xml"),
-        )
-        .unwrap();
+        copy_report_fixture("tests/fixtures/java/failsafe-reports/TEST-com.example.DbIntegrationIT.xml", fs.join("TEST-com.example.DbIntegrationIT.xml"));
 
         let since = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         let text_summary = "mvn verify: 4 run, 1 failed (01:23 min)\nBUILD FAILURE";

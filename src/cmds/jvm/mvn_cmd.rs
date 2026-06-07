@@ -44,13 +44,19 @@ fn parse_total_time(stripped: &str) -> Option<&str> {
 
 /// Parse the build's `Total time:` value from the full raw output. Used by the
 /// multi-goal path, whose per-segment test buffer no longer carries the footer
-/// line — the wall-clock has to come from the build block instead. Returns the
-/// first match (Maven prints a single build total). `TOTAL_TIME_RE` is
-/// unanchored, so the `[INFO]` prefix on the raw line does not interfere.
+/// line — the wall-clock has to come from the build footer instead. The real
+/// footer is the LAST `[INFO] Total time:` line, so we scan from the end and
+/// require the Maven `[INFO]` tag; this ignores any stray `Total time:` text a
+/// test or plugin logs to stdout earlier in the build (the single-goal path
+/// gets the same protection from its Summary-state-gated parse).
 fn parse_total_time_from_raw(raw: &str) -> Option<String> {
-    raw.lines().find_map(|l| {
+    raw.lines().rev().find_map(|l| {
         let s = strip_ansi(l);
-        parse_total_time(&s).map(|t| t.to_string())
+        let t = s.trim_start();
+        if !t.starts_with(INFO_TAG) {
+            return None;
+        }
+        parse_total_time(strip_maven_prefix(t)).map(|v| v.to_string())
     })
 }
 
@@ -295,8 +301,11 @@ fn relabel_summary(output: String, binary: MvnBinary) -> String {
         .map(|line| {
             if let Some(rest) = line.strip_prefix("mvn ") {
                 format!("{bin} {rest}")
-            } else if let Some(rest) = line.strip_prefix("mvn:") {
-                format!("{bin}:{rest}")
+            } else if line == "mvn: ok" {
+                // The only canonical `mvn:`-prefixed label (empty compile
+                // output). Matched exactly so a dep-tree root coordinate whose
+                // groupId happens to be `mvn` (`mvn:artifact:…`) is never touched.
+                format!("{bin}: ok")
             } else {
                 line.to_string()
             }
@@ -664,8 +673,12 @@ fn extract_build_block(raw: &str) -> String {
         if st.contains("BUILD SUCCESS") || st.contains("BUILD FAILURE") {
             out.push(if failed { "BUILD FAILURE".to_string() } else { "BUILD SUCCESS".to_string() });
         }
-        if let Some(t) = parse_total_time(&s) {
-            out.push(format!("Total time: {t}"));
+        // Only the Maven `[INFO] Total time:` footer counts — ignore any stray
+        // `Total time:` text a test/plugin logs to stdout before the footer.
+        if st.starts_with(INFO_TAG) {
+            if let Some(t) = parse_total_time(strip_maven_prefix(st)) {
+                out.push(format!("Total time: {t}"));
+            }
         }
     }
     out.join("\n")
@@ -4299,6 +4312,24 @@ mod tests {
     }
 
     #[test]
+    fn test_multi_goal_wall_clock_ignores_decoy_total_time() {
+        // The build wall-clock must come from the final `[INFO] Total time:`
+        // footer, not from a stray `Total time:` line a test logs to stdout
+        // before the footer (review follow-up: the raw scan was first-match +
+        // ungated, unlike the single-goal Summary-state parse).
+        let input = include_str!("../../../tests/fixtures/mvn_multi_test_decoy_total_time.txt");
+        let output = filter_mvn_multi(input, "clean test");
+        assert!(
+            output.contains("3 passed (12.5 s)"),
+            "should use footer wall-clock, not the decoy:\n{output}"
+        );
+        assert!(
+            !output.contains("999 s"),
+            "decoy `Total time: 999 s` leaked into the summary:\n{output}"
+        );
+    }
+
+    #[test]
     fn test_relabel_summary_switches_mvn_to_mvnd() {
         // mvnd runs share the binary-agnostic filters, which always emit a
         // `mvn …` label; relabel_summary swaps the displayed prefix to `mvnd`
@@ -4332,5 +4363,15 @@ mod tests {
         // Indented detail / stack-trace lines (not column-0 labels) untouched.
         let detail = "   at com.example.Foo.bar(Foo.java:1)".to_string();
         assert_eq!(relabel_summary(detail.clone(), MvnBinary::Mvnd), detail);
+
+        // A dep-tree root coordinate whose groupId is literally `mvn` must NOT
+        // be relabeled — only the exact `mvn: ok` compile sentinel is rewritten
+        // (review follow-up: the old `mvn:` prefix match would corrupt it).
+        let coord = "mvn:artifact:jar:1.0:compile".to_string();
+        assert_eq!(relabel_summary(coord.clone(), MvnBinary::Mvnd), coord);
+        assert_eq!(
+            relabel_summary("mvn: ok".to_string(), MvnBinary::Mvnd),
+            "mvnd: ok"
+        );
     }
 }

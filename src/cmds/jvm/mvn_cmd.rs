@@ -2101,7 +2101,10 @@ fn filter_mvn_dep_tree(output: &str) -> String {
     for line in clean.lines() {
         let trimmed = line.trim();
 
-        if trimmed.is_empty() || is_maven_boilerplate(trimmed) {
+        if trimmed.is_empty()
+            || is_maven_boilerplate(trimmed)
+            || is_mvn_startup_noise(trimmed)
+        {
             continue;
         }
 
@@ -2114,6 +2117,8 @@ fn filter_mvn_dep_tree(output: &str) -> String {
             && (stripped.is_empty()
                 || stripped.starts_with("Scanning ")
                 || stripped.starts_with("Building ")
+                || stripped.starts_with("Downloading ")
+                || stripped.starts_with("Downloaded ")
                 || stripped.starts_with("Loaded ")
                 || stripped.contains("from pom.xml")
                 || stripped.contains("BUILD SUCCESS")
@@ -2763,6 +2768,52 @@ mod tests {
             "collapsed tree should be under 40 lines, got {}",
             output_lines
         );
+    }
+
+    #[test]
+    fn test_dep_tree_cold_start_strips_download_and_daemon_noise() {
+        // Cold-start `mvnd dependency:tree` leaks ~20 lines of
+        // `Downloading from central:` / `Downloaded from central:`
+        // (maven-metadata.xml + plugin artifacts) plus the mvnd daemon
+        // banner. The compile path filtered downloads, but the dep-tree
+        // path did not. (2026-06-07 macOS field test, problem 3.)
+        let input = include_str!("../../../tests/fixtures/mvnd_dep_tree_cold_download.txt");
+        let output = filter_mvn_dep_tree(input);
+
+        for noise in [
+            "Downloading from central",
+            "Downloaded from central",
+            "Processing build on daemon",
+            "BuildTimeEventSpy",
+            "SmartBuilder",
+            "system terminal",
+            "org.jline",
+        ] {
+            assert!(
+                !output.contains(noise),
+                "dep-tree noise leaked ({noise}):\n{output}"
+            );
+        }
+
+        // The dependency tree itself must survive: root + direct deps, with
+        // transitive children collapsed into a `(N transitive)` count.
+        assert!(
+            output.contains("com.example:demo:jar:0.0.1-SNAPSHOT"),
+            "lost root artifact:\n{output}"
+        );
+        assert!(
+            output.contains("spring-boot-starter-web"),
+            "lost direct dep:\n{output}"
+        );
+        assert!(output.contains("transitive"), "lost transitive count:\n{output}");
+        // depth 2+ transitive deps must not appear as their own lines
+        assert!(
+            !output.contains("hibernate-core"),
+            "transitive dep leaked as its own line:\n{output}"
+        );
+
+        let savings = 100.0 - (count_tokens(&output) as f64 / count_tokens(input) as f64 * 100.0);
+        assert!(savings >= 70.0, "expected ≥70% savings, got {savings:.1}%");
     }
 
     #[test]

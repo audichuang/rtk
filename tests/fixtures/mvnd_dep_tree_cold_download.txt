@@ -1,0 +1,37 @@
+[INFO] Processing build on daemon a1b2c3d4-5e6f-7081-92a3-b4c5d6e7f809
+WARNING: Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+[main] WARNING org.jline - Unable to create a system terminal, creating a dumb terminal (enable debug logging for more information)
+[INFO] Scanning for projects...
+[INFO] BuildTimeEventSpy is registered.
+[INFO] Using the SmartBuilder implementation with a thread count of 10
+[INFO] Downloading from central: https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-dependency-plugin/maven-metadata.xml
+[INFO] Downloaded from central: https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-dependency-plugin/maven-metadata.xml (3.0 kB at 8.2 kB/s)
+[INFO] Downloading from central: https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-dependency-plugin/3.6.1/maven-dependency-plugin-3.6.1.pom
+[INFO] Downloaded from central: https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-dependency-plugin/3.6.1/maven-dependency-plugin-3.6.1.pom (8.1 kB at 120 kB/s)
+[INFO] Downloading from central: https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-dependency-plugin/3.6.1/maven-dependency-plugin-3.6.1.jar
+[INFO] Downloaded from central: https://repo.maven.apache.org/maven2/org/apache/maven/plugins/maven-dependency-plugin/3.6.1/maven-dependency-plugin-3.6.1.jar (181 kB at 2.1 MB/s)
+[INFO] Downloading from central: https://repo.maven.apache.org/maven2/org/apache/maven/shared/maven-dependency-analyzer/1.13.2/maven-dependency-analyzer-1.13.2.jar
+[INFO] Downloaded from central: https://repo.maven.apache.org/maven2/org/apache/maven/shared/maven-dependency-analyzer/1.13.2/maven-dependency-analyzer-1.13.2.jar (90 kB at 1.5 MB/s)
+[INFO]
+[INFO] -----------------------< com.example:demo >-----------------------
+[INFO] Building demo 0.0.1-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO]
+[INFO] --- dependency:3.6.1:tree (default-cli) @ demo ---
+[INFO] com.example:demo:jar:0.0.1-SNAPSHOT
+[INFO] +- org.springframework.boot:spring-boot-starter-web:jar:3.2.0:compile
+[INFO] |  +- org.springframework.boot:spring-boot-starter:jar:3.2.0:compile
+[INFO] |  |  +- org.springframework.boot:spring-boot:jar:3.2.0:compile
+[INFO] |  |  \- org.springframework:spring-context:jar:6.1.1:compile
+[INFO] |  +- org.springframework.boot:spring-boot-starter-json:jar:3.2.0:compile
+[INFO] |  \- org.springframework:spring-web:jar:6.1.1:compile
+[INFO] +- org.springframework.boot:spring-boot-starter-data-jpa:jar:3.2.0:compile
+[INFO] |  \- org.hibernate.orm:hibernate-core:jar:6.4.1.Final:compile
+[INFO] \- org.projectlombok:lombok:jar:1.18.30:provided
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  4.567 s (Wall Clock)
+[INFO] Finished at: 2026-06-07T11:55:00+08:00
+[INFO] ------------------------------------------------------------------------

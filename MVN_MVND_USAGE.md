@@ -221,6 +221,10 @@ exit code 傳遞(BUILD FAILURE 時 rtk 回 1)與 tee 兜底(`~/Library/Applicati
 
 ### 新發現問題(依嚴重度排序,皆附複現方式)
 
+> **更新(2026-06-07):以下 4 項皆已修復**(TDD + 真實 fixture,品質閘 `fmt && clippy && test`
+> 全綠、token 節省率不退步),詳見下方「已修(field-test gaps)」小節。本節保留為當時的實測記錄
+> 與複現方式。
+
 **1. mojo 層級 BUILD FAILURE 的 `[ERROR]` 原因整段被砍(最值得修)**
 
 當失敗不是「測試失敗」(沒有 surefire XML 可 enrich)而是 plugin/mojo 錯誤時,過濾後輸出只剩
@@ -281,10 +285,31 @@ WARNING: Unable to create a system terminal, creating a dumb terminal ...       
 - `-X` / `--debug` 應強制 passthrough(目前 debug 行會污染失敗詳情)
 - 截斷(truncated)的 surefire XML 仍會丟失失敗細節(只剩計數)— 與下方已修的 self-closing 是不同情況
 - Windows 未優先選 `mvnw.cmd`
-- 無 `mvnd` 專屬 fixture/測試 — **2026-06-07 macOS 實測已證實有實害**(見上節問題 1–3:
-  daemon 雜訊漏過、mojo 失敗原因被砍、dep-tree 下載雜訊),「以 `rtk mvn` 實證即可涵蓋」的假設不成立
-- mojo 層級 BUILD FAILURE 應保留 `[ERROR]` 原因行(上節問題 1,最優先)
-- 多 goal 摘要 wall-clock 顯示 `(?)`、mvnd 摘要前綴誤標 `mvn`(上節問題 4,cosmetic)
+
+> 原 backlog 的「無 `mvnd` 專屬 fixture/測試」「mojo 失敗原因被砍」「多 goal wall-clock / mvnd 標籤」
+> 三項已於 2026-06-07 修復(見下方「已修(field-test gaps)」),已移出本清單。
+
+### 已修(field-test gaps,2026-06-07)
+
+上節「新發現問題」的 4 項,皆以 TDD(真實 fixture → snapshot/regression test → 實作)修復,
+品質閘全綠、token 節省率不退步(test/verify 仍 ~99%+):
+
+- ✅ **問題 1 — mojo 層級 BUILD FAILURE 原因被砍**(commit `acebb1d`):`filter_mvn_compile` 在
+  沒有其他 `[ERROR]` 內容被保留時,把 `Failed to execute goal …: <原因>` 行接到 `BUILD FAILURE`
+  前(去掉 ` -> [Help N]` 與 re-run 樣板尾巴);compile / 測試失敗輸出維持不變。fixture
+  `mvn_test_no_matching_tests.txt` + regression 測試。binary-agnostic,mvn/mvnd 同修。
+- ✅ **問題 2 — mvnd daemon + jline 雜訊**(commit `cbb700b`):daemon 開場白(`Processing build on
+  daemon`、`BuildTimeEventSpy`、`SmartBuilder`)與 jline 終端警告(`WARNING: Unable to create a
+  system terminal` / `WARNING org.jline`)加進 `is_mvn_startup_noise`(compile/checkstyle 共用的
+  跨指令噪音閘)。首個 mvnd 專屬 fixture `mvnd_compile_daemon_noise.txt` + snapshot 測試。
+- ✅ **問題 3 — dep-tree 冷啟動下載雜訊**(commit `b187f84`):`filter_mvn_dep_tree` 補上
+  `Downloading `/`Downloaded ` 過濾,並改先過 `is_mvn_startup_noise`(daemon 雜訊在 dep-tree 也一併
+  清掉)。fixture `mvnd_dep_tree_cold_download.txt` + 測試。binary-agnostic。
+- ✅ **問題 4 — 多 goal wall-clock `(?)` + mvnd 摘要標籤**(commit `7f890da`):多 goal 測試摘要新增
+  `time_override`,把 build wall-clock 從 raw 接過來(單 goal 仍自行解析、傳 `None`);新增
+  `relabel_summary` 在 run_* 路徑把顯示前綴 `mvn …`→`mvnd …`(含 `(multi-goal)` 標頭、`mvn: ok`、
+  `rtk proxy mvn …` 提示)。過濾器仍輸出 `mvn …`,故既有 snapshot 與 binary 無關;`rtk gain` 的
+  tracking 標籤本就分開記 `mvnd …`、不受影響。
 
 ### 已修(2026-06-07,commit `27dc44c`)
 

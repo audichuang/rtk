@@ -22,6 +22,11 @@ upstream gradually.
 [MVN_MVND_USAGE.md](MVN_MVND_USAGE.md).** Key gotchas: binaries are not cross-platform (build per machine); on a
 Homebrew Mac do not `cp` over the `/opt/homebrew/bin/rtk` symlink — use `brew unlink rtk` + `cargo install --path .`.
 
+**Upstream sync (this is a fork).** Upstream later merged a *competing* mvn module (PR #1956); we keep our
+richer #1089 module and absorb upstream gradually. Every upstream commit is triaged (absorbed / cherry-picked /
+skipped-with-reason) in **[UPSTREAM_SYNC.md](UPSTREAM_SYNC.md)** — read it before syncing, and append new
+commits there after each sync. Never blind-merge `upstream/develop` (it would conflict on the mvn module).
+
 ### Name Collision Warning
 
 **Two different "rtk" projects exist:**

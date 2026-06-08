@@ -43,9 +43,9 @@ more minimal mvn module than the PR #1089 we absorbed. **We keep ours.** A deep 
 comparison (this fork's module vs upstream's single 2112-line `mvn_cmd.rs`) found **ours is a
 functional superset**: it adds `mvnd` daemon, `checkstyle`, `dependency:tree`, `clean`, and
 Surefire/Failsafe **XML report enrichment** — none of which upstream's has. We are
-equal-or-better on 8 of 11 dimensions; only **3 upstream wins were absorbed** (commit `bcab98f`).
+equal-or-better on 8 of 11 dimensions; only **3 upstream wins were absorbed** (commit `d87a5eb`).
 
-### Absorbed from upstream mvn module → commit `bcab98f`
+### Absorbed from upstream mvn module → commit `d87a5eb`
 
 | # | What | Upstream origin | Our target |
 |---|------|-----------------|------------|
@@ -70,11 +70,11 @@ Disposition: **✅ absorbed** · **⏭️ skip** (reason) · **➖ n/a** (merge/
 
 | Upstream | Summary | Disposition | Our commit / reason |
 |----------|---------|-------------|---------------------|
-| `35273c2` (PR #2181) / `a2a63e1` | fix(curl): passthrough binary downloads | ✅ absorbed | cherry-pick `fd185e3` |
-| `9574007` (PR #2135) / `ad2bfd3` | fix(aws): preserve JSON values for unsupported subcommands | ✅ absorbed | cherry-pick `1058899` |
-| `63a76de` (PR #1645) / `6b30fdd` | fix(filters): remove helm `max_lines` cap | ✅ absorbed | cherry-pick `5180298` |
-| `6c4950e` | feat(mvn)!: Rust module replacing TOML filter | 🔁 partial | kept ours; behaviors → absorb #1, #2 (`bcab98f`). `discover/registry.rs`, `discover/rules.rs`, `core/toml_filter.rs` in this commit ⏭️ skipped (mvn-coupled, tie to upstream's module) |
-| `cc152cd` | fix(mvn): Surefire 3.x close lines + failure trail | 🔁 partial | 2.x counting → absorb #3 (`bcab98f`); 3.x already equivalent |
+| `35273c2` (PR #2181) / `a2a63e1` | fix(curl): passthrough binary downloads | ✅ absorbed | cherry-pick `8321ef3` |
+| `9574007` (PR #2135) / `ad2bfd3` | fix(aws): preserve JSON values for unsupported subcommands | ✅ absorbed | cherry-pick `7a4ef3d` |
+| `63a76de` (PR #1645) / `6b30fdd` | fix(filters): remove helm `max_lines` cap | ✅ absorbed | cherry-pick `88db470` |
+| `6c4950e` | feat(mvn)!: Rust module replacing TOML filter | 🔁 partial | kept ours; behaviors → absorb #1, #2 (`d87a5eb`). `discover/registry.rs`, `discover/rules.rs`, `core/toml_filter.rs` in this commit ⏭️ skipped (mvn-coupled, tie to upstream's module) |
+| `cc152cd` | fix(mvn): Surefire 3.x close lines + failure trail | 🔁 partial | 2.x counting → absorb #3 (`d87a5eb`); 3.x already equivalent |
 | `047f454` | Merge PR #1956 (mvn-rust-module) | ➖ n/a | merge commit; see mvn decision above |
 | `f026cfd` | Merge develop into feat/mvn-rust-module | ➖ n/a | merge commit |
 | `f58333c` | chore(mvn): drop Cargo.lock churn | ➖ n/a | chore |

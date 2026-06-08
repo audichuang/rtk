@@ -257,24 +257,6 @@ impl std::fmt::Display for MvnBinary {
     }
 }
 
-/// Goals that share the test-output state machine (surefire + failsafe).
-/// Restricted to the two variants the filter can format — adding a third
-/// forces the matcher here to be updated, which is the point.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TestLikeGoal {
-    Test,
-    Verify,
-}
-
-impl TestLikeGoal {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Test => "test",
-            Self::Verify => "verify",
-        }
-    }
-}
-
 /// Build the `(tool_name, tee_label)` pair used for tracking a run of
 /// `<binary> <goal>`. Tee labels use `_` separators (filesystem-safe); tool
 /// names use a space (human-readable in `rtk gain`). Kept as a single helper
@@ -333,7 +315,7 @@ fn mvn_command(binary: MvnBinary) -> std::process::Command {
 
 /// Run `<binary> test` with state-machine filter + surefire/failsafe XML enrichment.
 pub fn run_test(binary: MvnBinary, args: &[String], verbose: u8) -> Result<i32> {
-    run_tests_like(binary, TestLikeGoal::Test, args, verbose)
+    run_tests_like(binary, "test", args, verbose)
 }
 
 /// Run `<binary> verify`. Verify is the canonical goal that produces
@@ -341,26 +323,24 @@ pub fn run_test(binary: MvnBinary, args: &[String], verbose: u8) -> Result<i32> 
 /// XML enrichment is most valuable; the state machine accumulates surefire +
 /// failsafe `T E S T S` blocks into one combined summary.
 pub fn run_verify(binary: MvnBinary, args: &[String], verbose: u8) -> Result<i32> {
-    run_tests_like(binary, TestLikeGoal::Verify, args, verbose)
+    run_tests_like(binary, "verify", args, verbose)
 }
 
-fn run_tests_like(
-    binary: MvnBinary,
-    goal: TestLikeGoal,
-    args: &[String],
-    verbose: u8,
-) -> Result<i32> {
-    let goal_str = goal.as_str();
-
+/// Run a single test-producing lifecycle goal through the shared test-output
+/// filter + surefire/failsafe XML enrichment. `goal` is the user's LITERAL
+/// goal (`test`, `verify`, `install`, `package`, `deploy`, `integration-test`),
+/// so the real Maven side effects (`install` to `.m2`, `deploy`, jar build)
+/// still run — we never substitute a different lifecycle phase.
+fn run_tests_like(binary: MvnBinary, goal: &str, args: &[String], verbose: u8) -> Result<i32> {
     let mut cmd = mvn_command(binary);
-    cmd.arg(goal_str);
+    cmd.arg(goal);
 
     for arg in args {
         cmd.arg(arg);
     }
 
     if verbose > 0 {
-        eprintln!("Running: {binary} {goal_str} {}", args.join(" "));
+        eprintln!("Running: {binary} {goal} {}", args.join(" "));
     }
 
     let started_at = std::time::SystemTime::now();
@@ -371,19 +351,29 @@ fn run_tests_like(
     let app_pkgs = crate::cmds::jvm::pom_groupid::detect(&cwd);
 
     let cwd_for_filter = cwd.clone();
+    let goal_owned = goal.to_string();
 
-    let (tool_name, tee_label) = mvn_labels(binary, goal_str, goal_str);
+    let (tool_name, tee_label) = mvn_labels(binary, goal, goal);
     runner::run_filtered(
         cmd,
         &tool_name,
         &args.join(" "),
         move |raw: &str| {
+            // English-footer guard: non-English locales (e.g. French `BUILD
+            // ÉCHEC`) and no-POM runs lack the `BUILD SUCCESS`/`BUILD FAILURE`
+            // footer this summarizer keys on. Summarizing them risks
+            // mis-reporting a failed build as success, so pass the
+            // (ANSI-stripped) output through untouched.
+            let clean = strip_ansi(raw);
+            if !has_english_footer(&clean) {
+                return clean;
+            }
             // Thread `app_packages` into the stdout parser so its framework
             // frame filtering matches the XML enrichment's behavior — keeps
             // the fallback (no XML reports) format consistent with XML output.
-            let filtered = filter_mvn_tests_with_goal(raw, goal_str, &app_pkgs, None);
+            let filtered = filter_mvn_tests_with_goal(raw, &goal_owned, &app_pkgs, None);
             let enriched =
-                enrich_with_reports(&filtered, &cwd_for_filter, started_at, &app_pkgs, goal_str);
+                enrich_with_reports(&filtered, &cwd_for_filter, started_at, &app_pkgs, &goal_owned);
             relabel_summary(enriched, binary)
         },
         runner::RunOptions::with_tee(&tee_label),
@@ -478,6 +468,10 @@ const COMPILE_LIKE_GOALS: &[(&str, &str)] = &[
 enum GoalRouting {
     Test,
     Verify,
+    /// `install`/`package`/`deploy`/`integration-test`: run the user's literal
+    /// goal (preserving its real side effects) but summarize the test output
+    /// the same way `test`/`verify` do.
+    TestLike,
     Clean,
     Compile,
     Checkstyle,
@@ -845,6 +839,7 @@ fn route_goal(subcommand: &str) -> GoalRouting {
     match subcommand {
         "test" => GoalRouting::Test,
         "verify" => GoalRouting::Verify,
+        "install" | "package" | "deploy" | "integration-test" => GoalRouting::TestLike,
         "clean" => GoalRouting::Clean,
         "checkstyle:check" | "checkstyle" => GoalRouting::Checkstyle,
         "dependency:tree" => GoalRouting::DepTree,
@@ -909,6 +904,7 @@ pub fn dispatch(binary: MvnBinary, args: &[OsString], verbose: u8) -> Result<i32
             match route_goal(&goal) {
                 GoalRouting::Test => run_test(binary, &rest, verbose),
                 GoalRouting::Verify => run_verify(binary, &rest, verbose),
+                GoalRouting::TestLike => run_tests_like(binary, &goal, &rest, verbose),
                 GoalRouting::Clean => run_clean(binary, &rest, verbose),
                 GoalRouting::Compile => run_compile_like(binary, &goal, &rest, verbose),
                 GoalRouting::Checkstyle => run_checkstyle(binary, &rest, verbose),
@@ -1212,6 +1208,18 @@ fn counts(r: Option<&SurefireResult>) -> (usize, usize, usize) {
         .unwrap_or((0, 0, 0))
 }
 
+/// True if the (ANSI-stripped) output carries an English Maven build footer
+/// (`… BUILD SUCCESS` / `… BUILD FAILURE`). Non-English locales (e.g. French
+/// `BUILD ÉCHEC`) and no-POM runs lack it; the summarizers that key on the
+/// footer must pass such output through untouched rather than mis-report a
+/// failed build as a success. Ported from upstream PR #1956.
+fn has_english_footer(stripped: &str) -> bool {
+    stripped.lines().any(|l| {
+        let t = l.trim();
+        t.ends_with(" BUILD SUCCESS") || t.ends_with(" BUILD FAILURE")
+    })
+}
+
 /// Filter `mvn test` output using a state machine parser.
 #[cfg(test)]
 pub(crate) fn filter_mvn_test(output: &str) -> String {
@@ -1292,11 +1300,18 @@ fn filter_mvn_tests_with_goal(
 
                 // Per-plugin summary line inside the Testing block:
                 // "Tests run: N, Failures: N, Errors: N, Skipped: N" with no
-                // "-- in <class>" suffix. Priority over any later Summary-state
-                // match so that the reactor aggregate (which appears after the
-                // LAST module's Summary block in multi-module builds) does not
-                // overwrite the real per-module total.
-                if !trimmed.contains("-- in") {
+                // per-class close-line suffix. Priority over any later
+                // Summary-state match so that the reactor aggregate (which
+                // appears after the LAST module's Summary block in multi-module
+                // builds) does not overwrite the real per-module total.
+                //
+                // The guard must exclude BOTH per-class close-line separators:
+                // Surefire 3.x (` -- in <class>`) and 2.x (` - in <class>`).
+                // Matching ` - in ` catches both ("X -- in Y" also contains
+                // "- in "); the suffix-less aggregate has no ` in ` and passes.
+                // Without the 2.x case a multi-class 2.x run undercounts to the
+                // last class's total (e.g. 5 instead of 35).
+                if !trimmed.contains("- in ") {
                     if let Some(caps) = TESTS_RUN_RE.captures(stripped) {
                         section = Some(parse_counts(&caps));
                         continue;
@@ -1975,6 +1990,14 @@ const CHECKSTYLE_HELP_BOILERPLATE: &[&str] = &[
 /// that fails, keep `[ERROR]` lines so the user sees the actual compile error.
 fn filter_mvn_clean(output: &str) -> String {
     let clean = strip_ansi(output);
+    // English-footer guard: a non-English locale (e.g. French `BUILD ÉCHEC`,
+    // `Suppression de …`) or a no-POM run lacks the `BUILD SUCCESS`/`BUILD
+    // FAILURE` footer and the `Deleting …` markers this summarizer keys on.
+    // Without it a failed French clean is silently mis-reported as
+    // "nothing to clean" — pass the raw output through so the failure shows.
+    if !has_english_footer(&clean) {
+        return clean;
+    }
     let mut deleted_count: usize = 0;
     let mut first_deleted: Option<&str> = None;
     let mut total_time: Option<&str> = None;
@@ -3167,13 +3190,72 @@ mod tests {
         assert_eq!(route_goal("clean"), GoalRouting::Clean);
         assert_eq!(route_goal("dependency:tree"), GoalRouting::DepTree);
         // Still passthrough — no dedicated filter:
-        assert_eq!(route_goal("package"), GoalRouting::Passthrough);
-        assert_eq!(route_goal("install"), GoalRouting::Passthrough);
-        assert_eq!(route_goal("deploy"), GoalRouting::Passthrough);
+        assert_eq!(route_goal("package"), GoalRouting::TestLike);
+        assert_eq!(route_goal("install"), GoalRouting::TestLike);
+        assert_eq!(route_goal("deploy"), GoalRouting::TestLike);
+        assert_eq!(route_goal("integration-test"), GoalRouting::TestLike);
         assert_eq!(route_goal("spring-boot:run"), GoalRouting::Passthrough);
         assert_eq!(route_goal("quarkus:dev"), GoalRouting::Passthrough);
         assert_eq!(route_goal("compilee"), GoalRouting::Passthrough);
         assert_eq!(route_goal(""), GoalRouting::Passthrough);
+    }
+
+    // --- absorbed from upstream PR #1956 (regression-safe subset) ---
+
+    #[test]
+    fn test_filter_mvn_install_slice_savings() {
+        // Single-goal `mvn install` used to fall to Passthrough (0% savings).
+        // It now flows through the shared test filter (literal `install` goal
+        // preserved at runtime so the real `.m2` install still happens).
+        let input = include_str!("../../../tests/fixtures/mvn_install_slice.txt");
+        let output = filter_mvn_tests_with_goal(input, "install", &[], None);
+        let savings = 100.0 - (count_tokens(&output) as f64 / count_tokens(input) as f64 * 100.0);
+        assert!(
+            savings >= 50.0,
+            "mvn install slice: expected ≥50% savings, got {:.1}%\nOutput: {}",
+            savings,
+            output
+        );
+        assert!(output.contains("install"), "summary names the goal: {output}");
+        assert!(
+            output.contains("passed"),
+            "summary reports passing tests: {output}"
+        );
+    }
+
+    #[test]
+    fn test_has_english_footer() {
+        assert!(has_english_footer("[INFO] BUILD SUCCESS\n"));
+        assert!(has_english_footer("noise\n[ERROR] BUILD FAILURE\n"));
+        assert!(!has_english_footer("[INFO] BUILD ÉCHEC\n"));
+        assert!(!has_english_footer("[INFO] Scanning for projects...\n"));
+        assert!(!has_english_footer(""));
+    }
+
+    #[test]
+    fn test_filter_mvn_clean_french_failure_passthrough() {
+        // A failed French `mvn clean` has no English footer; it must NOT be
+        // mis-reported as "nothing to clean" (a silent failure-hiding bug).
+        let input = include_str!("../../../tests/fixtures/mvn_locale_fr.txt");
+        let output = filter_mvn_clean(input);
+        assert!(
+            output.contains("ÉCHEC"),
+            "French failure footer must survive: {output}"
+        );
+        assert!(
+            !output.contains("nothing to clean"),
+            "must not report false success on a failed build: {output}"
+        );
+    }
+
+    #[test]
+    fn test_filter_mvn_test_surefire_2x_multiclass_counts() {
+        // Surefire 2.x single-dash ` - in ` per-class close lines must not be
+        // mistaken for the aggregate. The post-`Results:` total (35) wins, not
+        // the last class (5). Dormant on our all-3.x corpus but a real format.
+        let input = include_str!("../../../tests/fixtures/mvn_test_surefire_2x_multiclass.txt");
+        let output = filter_mvn_test(input);
+        assert_eq!(output, "mvn test: 35 passed (4.2 s)");
     }
 
     #[test]

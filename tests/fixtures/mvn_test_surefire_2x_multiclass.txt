@@ -1,0 +1,26 @@
+[INFO] Scanning for projects...
+[INFO]
+[INFO] ------------------------< com.example:legacy >--------------------------
+[INFO] Building legacy 1.0.0
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO]
+[INFO] --- maven-surefire-plugin:2.22.2:test (default-test) @ legacy ---
+[INFO]
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+[INFO] Running com.example.AlphaTest
+[INFO] Tests run: 30, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.4 s - in com.example.AlphaTest
+[INFO] Running com.example.BetaTest
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.1 s - in com.example.BetaTest
+[INFO]
+[INFO] Results:
+[INFO]
+[INFO] Tests run: 35, Failures: 0, Errors: 0, Skipped: 0
+[INFO]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  4.2 s
+[INFO] Finished at: 2026-05-21T15:13:00Z
+[INFO] ------------------------------------------------------------------------

@@ -17,9 +17,15 @@ commit twice or silently miss one.
 | Upstream remote | `upstream` → `https://github.com/rtk-ai/rtk.git` |
 | Origin (our fork) | `origin` → `https://github.com/audichuang/rtk.git` |
 | Default branch | `develop` (no `main`; a remote `master` exists) |
-| Last sync triage | **2026-06-08** |
+| Last sync triage | **2026-06-10** |
 | Sync base (merge-base) | `0a630fe` — `Merge pull request #2289 … strip-output-decorators` (2026-06-05) |
-| Upstream tip triaged | `047f454` — `Merge pull request #1956 … feat/mvn-rust-module` (2026-06-08) |
+| Upstream tip triaged | `6785a6c` — `fix: minor print_manual_instructions regression` (2026-06-09) |
+
+> **Note on the ahead/behind count.** `git rev-list --left-right --count HEAD...upstream/develop`
+> reports `56 / 27` (ahead / behind). The `27 behind` is **misleading**: we absorb upstream via
+> `cherry-pick -x`, which creates new commit hashes, so the original upstream commits still count
+> as "not in our history" by hash even though their *content* is fully absorbed. **Content-wise we
+> are caught up** through `6785a6c`, modulo the deliberately-skipped competing mvn module (PR #1956).
 
 ## How to re-sync (next time)
 
@@ -90,6 +96,31 @@ Disposition: **✅ absorbed** · **⏭️ skip** (reason) · **➖ n/a** (merge/
 | `97bd2a7` | fix(mvn): preserve compile-error continuation | ⏭️ skip | ours equivalent |
 | `97dbf98` | feat(mvn): filter `mvn -q` quiet-mode output | ⏭️ skip | ours strips `-q`, runs full pipeline + XML |
 | `77e28d0` | refactor(mvn): drop duration normalisation | ➖ n/a | we never had it |
+
+## Per-commit ledger — `047f454..6785a6c` (triaged 2026-06-10)
+
+New upstream range since the last triage. Only one cohesive, mvn-independent feature landed:
+the `CLAUDE_CONFIG_DIR` support series (`rtk init` and friends now honour the `CLAUDE_CONFIG_DIR`
+env var for global paths instead of hardcoding `~/.claude`). Absorbed in full via `cherry-pick -x`
+— clean apply, no conflicts, touches only `hooks/init.rs`, `hooks/integrity.rs`, `hooks/hook_check.rs`,
+`core/telemetry.rs`, `discover/provider.rs` (no mvn overlap).
+
+Disposition: **✅ absorbed** · **⏭️ skip** (reason) · **➖ n/a** (merge/chore) · **🔁 partial**
+
+| Upstream | Summary | Disposition | Our commit / reason |
+|----------|---------|-------------|---------------------|
+| `05de9d3` | fix(init): respect `CLAUDE_CONFIG_DIR` for global paths | ✅ absorbed | cherry-pick `6f590c5` |
+| `9671d9e` | refactor(init): address review feedback on CLAUDE_CONFIG_DIR PR | ✅ absorbed | cherry-pick `a82cbf4` |
+| `c59a763` | review: cleanup + drop undocumented `RTK_CLAUDE_DIR` (superseded by `CLAUDE_CONFIG_DIR`) | ✅ absorbed | cherry-pick `a8a64eb` |
+| `6785a6c` | fix: minor `print_manual_instructions` regression | ✅ absorbed | cherry-pick `3190474` |
+
+Gate after absorbing: `cargo fmt --all` ✅ · `cargo clippy --all-targets` ✅ (0 issues) ·
+`cargo test --all` ✅ (2235 passed, 7 ignored).
+
+> Everything else in `HEAD..upstream/develop` that is *not* in this table is either (a) already
+> absorbed in a prior sync via cherry-pick (curl `8321ef3`, aws `7a4ef3d`, helm `88db470`) and only
+> re-appears due to hash divergence, or (b) part of the competing mvn module (PR #1956),
+> triaged in the `0a630fe..047f454` table above.
 
 ## Backlog (optional, low-priority)
 
